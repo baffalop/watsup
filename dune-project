@@ -16,4 +16,5 @@
   (yojson (>= 2.1))
   (ppx_jane (>= 0.17))
   (ppx_expect (>= 0.17))
-  (ppx_inline_test (>= 0.17))))
+  (ppx_inline_test (>= 0.17))
+  (re (>= 1.11))))

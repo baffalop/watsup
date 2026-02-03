@@ -1,5 +1,5 @@
 (library
  (name watsup)
- (libraries core core_unix angstrom cohttp-lwt-unix lwt yojson)
+ (libraries core core_unix angstrom cohttp-lwt-unix lwt yojson re)
  (preprocess (pps ppx_jane))
  (inline_tests))
