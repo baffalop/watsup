@@ -1,3 +1,5 @@
+open! Core
+
 type t [@@deriving sexp, compare, equal]
 
 val of_hms : hours:int -> mins:int -> secs:int -> t
