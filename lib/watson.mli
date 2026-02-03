@@ -1,3 +1,5 @@
+open! Core
+
 type tag = {
   name : string;
   duration : Duration.t;
@@ -18,4 +20,4 @@ type report = {
 }
 [@@deriving sexp]
 
-val parse : string -> report Core.Or_error.t
+val parse : string -> report Or_error.t

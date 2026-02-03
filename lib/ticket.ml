@@ -1,4 +1,4 @@
-open Core
+open! Core
 
 let ticket_re = Re.Pcre.regexp {|^[A-Z]+-[0-9]+$|}
 
