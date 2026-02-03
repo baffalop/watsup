@@ -95,7 +95,7 @@ let newline = char '\n'
 let entry_p =
   let* name, total = project_line <* newline in
   let* tags = many (tag_line <* newline) in
-  let* _ = many blank_line in
+  let* _ = many newline in
   return { project = name; total; tags }
 
 let%expect_test "parse entry" =
@@ -123,7 +123,6 @@ let report_p =
   let* date_range = date_range_line in
   let* _ = blank_line in
   let* entries = many entry_p in
-  let* _ = many blank_line in
   let* total = total_line in
   return { date_range; entries; total }
 
@@ -151,8 +150,7 @@ Total: 2h 37m 27s|}
   match parse input with
   | Ok r ->
     print_s [%sexp (List.length r.entries : int)];
-    [%expect.unreachable];
+    [%expect {| 3 |}];
     print_s [%sexp (r.date_range : string)];
-    [%expect.unreachable]
-  | Error e -> print_s [%sexp (e : Error.t)];
-  [%expect {| ": string" |}]
+    [%expect {| "Tue 03 February 2026 -> Tue 03 February 2026" |}]
+  | Error e -> print_s [%sexp (e : Error.t)]
