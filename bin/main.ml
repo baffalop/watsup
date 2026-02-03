@@ -4,6 +4,7 @@ module Duration = Watsup.Duration
 module Prompt = Watsup.Prompt
 module Ticket = Watsup.Ticket
 module Watson = Watsup.Watson
+module Tempo = Watsup.Tempo
 module Worklog = Watsup.Worklog
 
 let run_watson () =
@@ -118,8 +119,36 @@ let main () =
     let manual = [] in
     if Prompt.prompt_confirm_post worklogs ~skipped ~manual then begin
       printf "\nPosting worklogs...\n";
-      List.iter worklogs ~f:(fun w ->
-          printf "  Posted %s (%s)\n" w.ticket (Duration.to_string w.duration))
+      Lwt_main.run
+        (let open Lwt.Syntax in
+         let* results =
+           Lwt_list.map_s
+             (fun w ->
+               let* result = Tempo.post_worklog ~token:config.tempo_token w in
+               let status =
+                 match result with
+                 | Worklog.Posted -> "done"
+                 | Worklog.Failed msg -> sprintf "FAILED: %s" msg
+                 | Worklog.Manual_required msg -> sprintf "MANUAL: %s" msg
+               in
+               printf "  %s (%s) - %s\n%!" w.Worklog.ticket
+                 (Duration.to_string w.duration)
+                 status;
+               Lwt.return result)
+             worklogs
+         in
+         let posted =
+           List.count results ~f:(function
+             | Worklog.Posted -> true
+             | _ -> false)
+         in
+         let failed =
+           List.count results ~f:(function
+             | Worklog.Failed _ -> true
+             | _ -> false)
+         in
+         printf "\nSummary: %d posted, %d failed\n" posted failed;
+         Lwt.return ())
     end
     else printf "\nAborted.\n"
   end;

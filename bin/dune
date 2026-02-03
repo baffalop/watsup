@@ -1,5 +1,5 @@
 (executable
  (name main)
  (public_name watsup)
- (libraries watsup core core_unix)
+ (libraries watsup core core_unix lwt lwt.unix)
  (preprocess (pps ppx_jane)))
