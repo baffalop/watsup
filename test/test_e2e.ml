@@ -41,6 +41,8 @@ let make_io ~inputs ~watson_output =
       | None -> failwith "No more input available")
     ~output:(fun s -> Buffer.add_string output_buf s)
     ~run_command:(fun _cmd -> watson_output)
+    ~http_post:(fun ~url:_ ~headers:_ ~body:_ ->
+      Lwt.return { Io.status = 200; body = "{}" })
   in
   (io, fun () -> Buffer.contents output_buf)
 
@@ -50,9 +52,9 @@ let normalize_output ~config_path output =
 
 let%expect_test "prompts for token when no config exists" =
   with_temp_config (fun ~config_path ~temp_dir:_ ->
-    (* Need inputs: token, then prompts for 3 entries (architecture, breaks, cr) *)
+    (* Inputs: token, ARCH-1 for architecture, S for breaks, n for cr, description, q to quit *)
     let io, get_output = make_io
-      ~inputs:["my-secret-token-12345"; "ARCH-1"; "S"; "n"]
+      ~inputs:["my-secret-token-12345"; "ARCH-1"; "S"; "n"; ""; "q"]
       ~watson_output:sample_watson_report in
     Main_logic.run ~io ~config_path;
     print_string (normalize_output ~config_path (get_output ())));
@@ -68,7 +70,11 @@ let%expect_test "prompts for token when no config exists" =
     === Summary ===
     POST: ARCH-1 (25m) from architecture
     SKIP: breaks (1h 20m)
-    |}]
+
+    === Worklogs to Post ===
+      ARCH-1: 25m
+
+    Description (optional): [Enter] post | [q] quit: |}]
 
 let%expect_test "uses cached token when config exists" =
   with_temp_config (fun ~config_path ~temp_dir:_ ->
@@ -84,7 +90,8 @@ let%expect_test "uses cached token when config exists" =
     } in
     Config.save ~path:config_path config |> Or_error.ok_exn;
 
-    let io, get_output = make_io ~inputs:[] ~watson_output:sample_watson_report in
+    (* Inputs: description, q to quit *)
+    let io, get_output = make_io ~inputs:[""; "q"] ~watson_output:sample_watson_report in
     Main_logic.run ~io ~config_path;
     print_string (normalize_output ~config_path (get_output ())));
   [%expect {|
@@ -95,7 +102,13 @@ let%expect_test "uses cached token when config exists" =
     POST: FK-3080 (35m) from cr:FK-3080
     POST: FK-3083 (10m) from cr:FK-3083
     SKIP: breaks (1h 20m)
-    |}]
+
+    === Worklogs to Post ===
+      ARCH-1: 25m
+      FK-3080: 35m
+      FK-3083: 10m
+
+    Description (optional): [Enter] post | [q] quit: |}]
 
 let%expect_test "parses watson report and lists entries" =
   with_temp_config (fun ~config_path ~temp_dir:_ ->
@@ -125,8 +138,9 @@ breaks - 30m 00s
 
 Total: 2h 30m 00s|} in
 
+    (* Inputs: PROJ-123 for coding, S for breaks, description, q to quit *)
     let io, get_output = make_io
-      ~inputs:["PROJ-123"; "S"]  (* assign ticket to coding, skip-always breaks *)
+      ~inputs:["PROJ-123"; "S"; ""; "q"]
       ~watson_output:watson in
     Main_logic.run ~io ~config_path;
     print_string @@ normalize_output ~config_path (get_output ()));
@@ -140,7 +154,11 @@ Total: 2h 30m 00s|} in
     === Summary ===
     POST: PROJ-123 (2h) from coding
     SKIP: breaks (30m)
-    |}]
+
+    === Worklogs to Post ===
+      PROJ-123: 2h
+
+    Description (optional): [Enter] post | [q] quit: |}]
 
 let%expect_test "uses cached mappings on subsequent runs" =
   with_temp_config (fun ~config_path ~temp_dir:_ ->
@@ -159,8 +177,9 @@ breaks - 45m 00s
 
 Total: 2h 15m 00s|} in
 
+    (* Inputs: description, q to quit *)
     let io, get_output = make_io
-      ~inputs:[]  (* no prompts needed - all cached *)
+      ~inputs:[""; "q"]
       ~watson_output:watson in
     Main_logic.run ~io ~config_path;
     print_string @@ normalize_output ~config_path (get_output ()));
@@ -170,4 +189,8 @@ Total: 2h 15m 00s|} in
     === Summary ===
     POST: PROJ-123 (1h 30m) from coding
     SKIP: breaks (45m)
-    |}]
+
+    === Worklogs to Post ===
+      PROJ-123: 1h 30m
+
+    Description (optional): [Enter] post | [q] quit: |}]
