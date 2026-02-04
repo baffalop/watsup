@@ -50,34 +50,51 @@ let normalize_output ~config_path output =
 
 let%expect_test "prompts for token when no config exists" =
   with_temp_config (fun ~config_path ~temp_dir:_ ->
-    let io, get_output = make_io ~inputs:["my-secret-token-12345"] ~watson_output:sample_watson_report in
+    (* Need inputs: token, then prompts for 3 entries (architecture, breaks, cr) *)
+    let io, get_output = make_io
+      ~inputs:["my-secret-token-12345"; "ARCH-1"; "S"; "n"]
+      ~watson_output:sample_watson_report in
     Main_logic.run ~io ~config_path;
     print_string (normalize_output ~config_path (get_output ())));
   [%expect {|
-    Enter Tempo API token: Token configured: my-secre...
-    Report: Tue 03 February 2026 -> Tue 03 February 2026
-    Entries: 3
-      architecture - 25m
-      breaks - 1h 20m
-      cr - 51m
+    Enter Tempo API token: Report: Tue 03 February 2026 -> Tue 03 February 2026 (3 entries)
+
+    architecture - 25m
+      [ticket] assign | [n] skip | [S] skip always:
+    breaks - 1h 20m
+      [ticket] assign | [n] skip | [S] skip always:
+    cr - 50m
+      [ticket] assign | [n] skip | [S] skip always:
+    === Summary ===
+    POST: ARCH-1 (25m) from architecture
+    SKIP: breaks (1h 20m)
     |}]
 
 let%expect_test "uses cached token when config exists" =
   with_temp_config (fun ~config_path ~temp_dir:_ ->
-    (* Pre-populate config *)
-    let config = { Config.empty with tempo_token = "existing-token-xyz" } in
+    (* Pre-populate config with token and mappings for all entries *)
+    let config = {
+      Config.empty with
+      tempo_token = "existing-token-xyz";
+      mappings = [
+        ("architecture", Config.Ticket "ARCH-1");
+        ("breaks", Config.Skip);
+        ("cr", Config.Auto_extract);
+      ];
+    } in
     Config.save ~path:config_path config |> Or_error.ok_exn;
 
     let io, get_output = make_io ~inputs:[] ~watson_output:sample_watson_report in
     Main_logic.run ~io ~config_path;
     print_string (normalize_output ~config_path (get_output ())));
   [%expect {|
-    Token configured: existing...
-    Report: Tue 03 February 2026 -> Tue 03 February 2026
-    Entries: 3
-      architecture - 25m
-      breaks - 1h 20m
-      cr - 51m
+    Report: Tue 03 February 2026 -> Tue 03 February 2026 (3 entries)
+
+    === Summary ===
+    POST: ARCH-1 (25m) from architecture
+    POST: FK-3080 (35m) from cr:FK-3080
+    POST: FK-3083 (10m) from cr:FK-3083
+    SKIP: breaks (1h 20m)
     |}]
 
 let%expect_test "parses watson report and lists entries" =
@@ -90,7 +107,67 @@ let%expect_test "parses watson report and lists entries" =
     Main_logic.run ~io ~config_path;
     print_string (normalize_output ~config_path (get_output ())));
   [%expect {|
-    Token configured: test-tok...
-    Report: Mon 03 February 2026 -> Mon 03 February 2026
-    Entries: 0
+    Report: Mon 03 February 2026 -> Mon 03 February 2026 (0 entries)
+
+    === Summary ===
+    |}]
+
+let%expect_test "interactive flow with mixed inputs" =
+  with_temp_config (fun ~config_path ~temp_dir:_ ->
+    let config = { Config.empty with tempo_token = "test-token" } in
+    Config.save ~path:config_path config |> Or_error.ok_exn;
+
+    let watson = {|Mon 03 February 2026 -> Mon 03 February 2026
+
+coding - 2h 00m 00s
+
+breaks - 30m 00s
+
+Total: 2h 30m 00s|} in
+
+    let io, get_output = make_io
+      ~inputs:["PROJ-123"; "S"]  (* assign ticket to coding, skip-always breaks *)
+      ~watson_output:watson in
+    Main_logic.run ~io ~config_path;
+    print_string @@ normalize_output ~config_path (get_output ()));
+  [%expect {|
+    Report: Mon 03 February 2026 -> Mon 03 February 2026 (2 entries)
+
+    coding - 2h
+      [ticket] assign | [n] skip | [S] skip always:
+    breaks - 30m
+      [ticket] assign | [n] skip | [S] skip always:
+    === Summary ===
+    POST: PROJ-123 (2h) from coding
+    SKIP: breaks (30m)
+    |}]
+
+let%expect_test "uses cached mappings on subsequent runs" =
+  with_temp_config (fun ~config_path ~temp_dir:_ ->
+    let config = {
+      Config.empty with
+      tempo_token = "test-token";
+      mappings = [("coding", Config.Ticket "PROJ-123"); ("breaks", Config.Skip)];
+    } in
+    Config.save ~path:config_path config |> Or_error.ok_exn;
+
+    let watson = {|Mon 03 February 2026 -> Mon 03 February 2026
+
+coding - 1h 30m 00s
+
+breaks - 45m 00s
+
+Total: 2h 15m 00s|} in
+
+    let io, get_output = make_io
+      ~inputs:[]  (* no prompts needed - all cached *)
+      ~watson_output:watson in
+    Main_logic.run ~io ~config_path;
+    print_string @@ normalize_output ~config_path (get_output ()));
+  [%expect {|
+    Report: Mon 03 February 2026 -> Mon 03 February 2026 (2 entries)
+
+    === Summary ===
+    POST: PROJ-123 (1h 30m) from coding
+    SKIP: breaks (45m)
     |}]
