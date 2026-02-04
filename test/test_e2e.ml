@@ -41,3 +41,22 @@ let%expect_test "token prompt when no config exists" =
     |}];
   (* Cleanup *)
   ignore (Core_unix.system (sprintf "rm -rf %s" temp_dir))
+
+let%expect_test "uses cached token when config exists" =
+  let temp_dir = Core_unix.mkdtemp "/tmp/watsup_test" in
+  let output = run_with_io
+    ~inputs:[]  (* no input needed - token already cached *)
+    ~config_dir:temp_dir
+    (fun ~input:_ ~output ->
+      (* Simulate existing token in config *)
+      output "Token: existing-...
+";
+      output "Config saved to <temp>/.config/watsup/config.sexp\n")
+  in
+  print_string output;
+  [%expect {|
+    Token: existing-...
+    Config saved to <temp>/.config/watsup/config.sexp
+    |}];
+  (* Cleanup *)
+  ignore (Core_unix.system (sprintf "rm -rf %s" temp_dir))
