@@ -12,6 +12,6 @@ let run ~io ~config_path =
     else config
   in
 
-  io.output (sprintf "Token configured: %s...\n" (String.prefix config.tempo_token 8));
+  io.output @@ sprintf "Token configured: %s...\n" @@ String.prefix config.tempo_token 8;
   Config.save ~path:config_path config |> Or_error.ok_exn;
-  io.output (sprintf "Config saved to %s\n" config_path)
+  io.output @@ sprintf "Config saved to %s\n" config_path
