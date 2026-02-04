@@ -12,8 +12,11 @@ let stdio = {
   run_command = (fun cmd ->
     let ic = Core_unix.open_process_in cmd in
     let output = In_channel.input_all ic in
-    let _ = Core_unix.close_process_in ic in
-    output);
+    match Core_unix.close_process_in ic with
+    | Ok () -> output
+    | Error err ->
+      failwith @@ sprintf "Command failed: %s (%s)" cmd
+        (Core_unix.Exit_or_signal.to_string_hum (Error err)));
 }
 
 let create ~input ~output ~run_command = { input; output; run_command }

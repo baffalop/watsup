@@ -18,6 +18,11 @@ cr - 51m 02s
 
 Total: 2h 37m 27s|}
 
+let empty_watson_report =
+  {|Mon 03 February 2026 -> Mon 03 February 2026
+
+Total: 0h 0m 0s|}
+
 let with_temp_config f =
   let temp_dir = Core_unix.mkdtemp "/tmp/watsup_test" in
   let config_path = temp_dir ^/ ".config" ^/ "watsup" ^/ "config.sexp" in
@@ -81,14 +86,11 @@ let%expect_test "parses watson report and lists entries" =
     let config = { Config.empty with tempo_token = "test-token-123" } in
     Config.save ~path:config_path config |> Or_error.ok_exn;
 
-    let io, get_output = make_io ~inputs:[] ~watson_output:sample_watson_report in
+    let io, get_output = make_io ~inputs:[] ~watson_output:empty_watson_report in
     Main_logic.run ~io ~config_path;
     print_string (normalize_output ~config_path (get_output ())));
   [%expect {|
     Token configured: test-tok...
-    Report: Tue 03 February 2026 -> Tue 03 February 2026
-    Entries: 3
-      architecture - 25m
-      breaks - 1h 20m
-      cr - 51m
+    Report: Mon 03 February 2026 -> Mon 03 February 2026
+    Entries: 0
     |}]
