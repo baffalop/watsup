@@ -23,6 +23,8 @@ type t = {
 }
 [@@deriving sexp]
 
+(* Note: All fields have defaults for backwards compatibility with old configs *)
+
 val default_path : unit -> string
 val load : path:string -> t Core.Or_error.t
 val save : path:string -> t -> unit Core.Or_error.t

@@ -19,7 +19,7 @@ let fetch_jira_account_id ~io ~config =
     | `String account_id -> Ok account_id
     | _ -> Error "accountId not found in response"
   else
-    Error (sprintf "Jira API error (%d): %s" response.status response.body)
+    Error (sprintf "Jira API error (%d) at %s: %s" response.status url response.body)
 
 let fetch_jira_issue_id ~io ~config ~ticket =
   let url = sprintf "%s/rest/api/2/issue/%s?fields=id" config.Config.jira_base_url ticket in

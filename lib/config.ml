@@ -14,16 +14,18 @@ type category_cache = {
 [@@deriving sexp]
 
 type t = {
-  tempo_token : string;
-  jira_email : string;
-  jira_token : string;
-  jira_base_url : string;
-  jira_account_id : string;
-  issue_ids : (string * int) list;
-  category : category_cache option;
-  mappings : (string * mapping) list;
+  tempo_token : string [@default ""];
+  jira_email : string [@default ""];
+  jira_token : string [@default ""];
+  jira_base_url : string [@default ""];
+  jira_account_id : string [@default ""];
+  issue_ids : (string * int) list [@default []];
+  category : category_cache option [@default None];
+  mappings : (string * mapping) list [@default []];
 }
 [@@deriving sexp]
+
+(* TODO: Consider proper schema migrations if config format changes frequently *)
 
 let default_path () =
   let home = Sys.getenv_exn "HOME" in
