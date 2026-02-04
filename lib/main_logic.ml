@@ -47,11 +47,10 @@ let prompt_for_entry ~io entry =
 
 (* Parse date from Watson date_range like "Tue 03 February 2026 -> Tue 03 February 2026" *)
 let parse_date_from_range date_range =
-  (* Extract first date before " -> " *)
-  let first_date = String.lsplit2_exn date_range ~on:'-'
-    |> fst
-    |> String.rstrip ~drop:(Char.equal ' ')
-    |> String.rstrip ~drop:(Char.equal ' ')
+  (* Extract first date before " -> " separator *)
+  let first_date = match String.lsplit2 date_range ~on:'>' with
+    | Some (before_arrow, _) -> String.rstrip before_arrow ~drop:(fun c -> Char.equal c ' ' || Char.equal c '-')
+    | None -> failwith @@ sprintf "Cannot find ' -> ' separator in: %s" date_range
   in
   (* Parse "Tue 03 February 2026" format *)
   let parts = String.split first_date ~on:' ' in
@@ -65,6 +64,13 @@ let parse_date_from_range date_range =
     in
     sprintf "%s-%02d-%s" year month day
   | _ -> failwith @@ sprintf "Cannot parse date: %s" first_date
+
+let%expect_test "parse_date_from_range" =
+  let test s = print_endline @@ parse_date_from_range s in
+  test "Tue 03 February 2026 -> Tue 03 February 2026";
+  [%expect {| 2026-02-03 |}];
+  test "Mon 15 January 2026 -> Fri 19 January 2026";
+  [%expect {| 2026-01-15 |}]
 
 let build_worklog_json ~issue_id ~author_account_id ~duration_seconds ~date ~description =
   let open Yojson.Safe in

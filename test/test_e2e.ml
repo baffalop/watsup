@@ -31,9 +31,11 @@ let with_temp_config f =
     ~finally:(fun () ->
       ignore (Core_unix.system (sprintf "rm -rf %s" (Filename.quote temp_dir))))
 
-let make_io ~inputs ~watson_output =
+let make_io ?(http_get_responses=[]) ?(http_post_responses=[]) ~inputs ~watson_output () =
   let input_queue = Queue.of_list inputs in
   let output_buf = Buffer.create 256 in
+  let http_get_queue = Queue.of_list http_get_responses in
+  let http_post_queue = Queue.of_list http_post_responses in
   let dequeue_input () =
     match Queue.dequeue input_queue with
     | Some line -> line
@@ -45,9 +47,13 @@ let make_io ~inputs ~watson_output =
     ~output:(fun s -> Buffer.add_string output_buf s)
     ~run_command:(fun _cmd -> watson_output)
     ~http_post:(fun ~url:_ ~headers:_ ~body:_ ->
-      Lwt.return { Io.status = 200; body = "{}" })
+      let resp = Queue.dequeue http_post_queue
+        |> Option.value ~default:{ Io.status = 200; body = "{}" } in
+      Lwt.return resp)
     ~http_get:(fun ~url:_ ~headers:_ ->
-      Lwt.return { Io.status = 200; body = "{}" })
+      let resp = Queue.dequeue http_get_queue
+        |> Option.value ~default:{ Io.status = 200; body = "{}" } in
+      Lwt.return resp)
   in
   (io, fun () -> Buffer.contents output_buf)
 
@@ -75,7 +81,7 @@ let%expect_test "interactive flow prompts for unmapped entries" =
     (* Inputs: ARCH-1 for architecture, S for breaks, n for cr, description, q to quit *)
     let io, get_output = make_io
       ~inputs:["ARCH-1"; "S"; "n"; ""; "q"]
-      ~watson_output:sample_watson_report in
+      ~watson_output:sample_watson_report () in
     Main_logic.run ~io ~config_path;
     print_string (normalize_output ~config_path (get_output ())));
   [%expect {|
@@ -110,7 +116,7 @@ let%expect_test "uses cached mappings with auto_extract" =
     Config.save ~path:config_path config |> Or_error.ok_exn;
 
     (* Inputs: description, q to quit *)
-    let io, get_output = make_io ~inputs:[""; "q"] ~watson_output:sample_watson_report in
+    let io, get_output = make_io ~inputs:[""; "q"] ~watson_output:sample_watson_report () in
     Main_logic.run ~io ~config_path;
     print_string (normalize_output ~config_path (get_output ())));
   [%expect {|
@@ -135,7 +141,7 @@ let%expect_test "handles empty watson report" =
     let config = test_config_with_mappings [] in
     Config.save ~path:config_path config |> Or_error.ok_exn;
 
-    let io, get_output = make_io ~inputs:[] ~watson_output:empty_watson_report in
+    let io, get_output = make_io ~inputs:[] ~watson_output:empty_watson_report () in
     Main_logic.run ~io ~config_path;
     print_string (normalize_output ~config_path (get_output ())));
   [%expect {|
@@ -160,7 +166,7 @@ Total: 2h 30m 00s|} in
     (* Inputs: PROJ-123 for coding, S for breaks, description, q to quit *)
     let io, get_output = make_io
       ~inputs:["PROJ-123"; "S"; ""; "q"]
-      ~watson_output:watson in
+      ~watson_output:watson () in
     Main_logic.run ~io ~config_path;
     print_string @@ normalize_output ~config_path (get_output ()));
   [%expect {|
@@ -198,7 +204,7 @@ Total: 2h 15m 00s|} in
     (* Inputs: description, q to quit - no entry prompts needed *)
     let io, get_output = make_io
       ~inputs:[""; "q"]
-      ~watson_output:watson in
+      ~watson_output:watson () in
     Main_logic.run ~io ~config_path;
     print_string @@ normalize_output ~config_path (get_output ()));
   [%expect {|
@@ -212,3 +218,116 @@ Total: 2h 15m 00s|} in
       PROJ-123: 1h 30m
 
     Description (optional): [Enter] post | [q] quit: |}]
+
+let%expect_test "posts worklogs with mocked HTTP" =
+  with_temp_config (fun ~config_path ~temp_dir:_ ->
+    (* Config with cached issue ID to skip Jira lookup *)
+    let config = {
+      (test_config_with_mappings [("coding", Config.Ticket "PROJ-123")]) with
+      issue_ids = [("PROJ-123", 12345)];
+    } in
+    Config.save ~path:config_path config |> Or_error.ok_exn;
+
+    let watson = {|Mon 03 February 2026 -> Mon 03 February 2026
+
+coding - 1h 00m 00s
+
+Total: 1h 00m 00s|} in
+
+    (* Inputs: description "test work", Enter to confirm (not "q") *)
+    let io, get_output = make_io
+      ~inputs:["test work"; ""]
+      ~http_post_responses:[{ Io.status = 200; body = "{\"id\": 999}" }]
+      ~watson_output:watson () in
+    Main_logic.run ~io ~config_path;
+    print_string @@ normalize_output ~config_path (get_output ()));
+  [%expect {|
+    Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
+
+    === Summary ===
+    POST: PROJ-123 (1h) from coding
+
+    === Worklogs to Post ===
+      PROJ-123: 1h
+
+    Description (optional): [Enter] post | [q] quit:
+    === Posting ===
+    PROJ-123: OK
+
+    Posted 1/1 worklogs
+    |}]
+
+let%expect_test "handles failed POST with error message" =
+  with_temp_config (fun ~config_path ~temp_dir:_ ->
+    let config = {
+      (test_config_with_mappings [("coding", Config.Ticket "PROJ-123")]) with
+      issue_ids = [("PROJ-123", 12345)];
+    } in
+    Config.save ~path:config_path config |> Or_error.ok_exn;
+
+    let watson = {|Mon 03 February 2026 -> Mon 03 February 2026
+
+coding - 1h 00m 00s
+
+Total: 1h 00m 00s|} in
+
+    (* Mock a 400 error response *)
+    let io, get_output = make_io
+      ~inputs:[""; ""]
+      ~http_post_responses:[{ Io.status = 400; body = "{\"error\": \"Invalid issue\"}" }]
+      ~watson_output:watson () in
+    Main_logic.run ~io ~config_path;
+    print_string @@ normalize_output ~config_path (get_output ()));
+  [%expect {|
+    Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
+
+    === Summary ===
+    POST: PROJ-123 (1h) from coding
+
+    === Worklogs to Post ===
+      PROJ-123: 1h
+
+    Description (optional): [Enter] post | [q] quit:
+    === Posting ===
+    PROJ-123: FAILED (400)
+      Response: {"error": "Invalid issue"}
+
+    Posted 0/1 worklogs
+    |}]
+
+let%expect_test "looks up issue ID from Jira when not cached" =
+  with_temp_config (fun ~config_path ~temp_dir:_ ->
+    (* Config without cached issue ID *)
+    let config = test_config_with_mappings [("coding", Config.Ticket "PROJ-123")] in
+    Config.save ~path:config_path config |> Or_error.ok_exn;
+
+    let watson = {|Mon 03 February 2026 -> Mon 03 February 2026
+
+coding - 1h 00m 00s
+
+Total: 1h 00m 00s|} in
+
+    (* Mock Jira issue lookup returning ID, then successful POST *)
+    let io, get_output = make_io
+      ~inputs:[""; ""]
+      ~http_get_responses:[{ Io.status = 200; body = "{\"id\": \"67890\"}" }]
+      ~http_post_responses:[{ Io.status = 200; body = "{}" }]
+      ~watson_output:watson () in
+    Main_logic.run ~io ~config_path;
+    print_string @@ normalize_output ~config_path (get_output ()));
+  [%expect {|
+    Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
+
+    === Summary ===
+    POST: PROJ-123 (1h) from coding
+
+    === Worklogs to Post ===
+      PROJ-123: 1h
+
+    Description (optional): [Enter] post | [q] quit:
+    === Posting ===
+      Looking up PROJ-123... OK (67890)
+    PROJ-123: OK
+
+    Posted 1/1 worklogs
+    |}]
