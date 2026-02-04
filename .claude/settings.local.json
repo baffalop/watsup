@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git worktree:*)",
+      "Bash(opam switch:*)",
+      "Bash(opam exec:*)",
+      "Bash(opam install:*)",
+      "Bash(git reset:*)",
+      "Bash(dune build:*)",
+      "Bash(git -C /Users/nikitagaidakov-mac2/Developer/watsup status)",
+      "Bash(git -C /Users/nikitagaidakov-mac2/Developer/watsup diff)",
+      "Bash(git -C /Users/nikitagaidakov-mac2/Developer/watsup log --oneline -5)",
+      "Bash(git -C /Users/nikitagaidakov-mac2/Developer/watsup add:*)",
+      "Bash(git -C /Users/nikitagaidakov-mac2/Developer/watsup commit -m \"$\\(cat <<''EOF''\nfeat: add e2e test infrastructure with IO injection\n\nStrip main.ml to minimal token-handling core with injected IO for\ntestability. Add test harness that captures IO and overrides HOME\nfor isolated config testing. Include manual testing script for\ndebugging CLI behavior.\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
+    ]
+  }
+}
