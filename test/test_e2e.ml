@@ -1,62 +1,52 @@
 open Core
+module Config = Watsup.Config
+module Io = Watsup.Io
+module Main_logic = Watsup.Main_logic
 
-(* Test harness that captures IO *)
-let run_with_io ~inputs ~config_dir f =
+let with_temp_config f =
+  let temp_dir = Core_unix.mkdtemp "/tmp/watsup_test" in
+  let config_path = temp_dir ^/ ".config" ^/ "watsup" ^/ "config.sexp" in
+  Core_unix.mkdir_p (Filename.dirname config_path);
+  protect ~f:(fun () -> f ~config_path ~temp_dir)
+    ~finally:(fun () ->
+      ignore (Core_unix.system (sprintf "rm -rf %s" (Filename.quote temp_dir))))
+
+let make_io ~inputs =
   let input_queue = Queue.of_list inputs in
   let output_buf = Buffer.create 256 in
-  let input () =
-    match Queue.dequeue input_queue with
-    | Some line -> line
-    | None -> failwith "No more input available"
+  let io = Io.create
+    ~input:(fun () ->
+      match Queue.dequeue input_queue with
+      | Some line -> line
+      | None -> failwith "No more input available")
+    ~output:(fun s -> Buffer.add_string output_buf s)
   in
-  let output s = Buffer.add_string output_buf s in
+  (io, fun () -> Buffer.contents output_buf)
 
-  (* Override config path for testing *)
-  let original_home = Sys.getenv "HOME" in
-  Core_unix.putenv ~key:"HOME" ~data:config_dir;
+(* Normalize output by replacing dynamic temp paths with a placeholder *)
+let normalize_output ~config_path output =
+  String.substr_replace_all output ~pattern:config_path ~with_:"<CONFIG_PATH>"
 
-  (try f ~input ~output with exn ->
-    Option.iter original_home ~f:(fun h -> Core_unix.putenv ~key:"HOME" ~data:h);
-    raise exn);
-
-  Option.iter original_home ~f:(fun h -> Core_unix.putenv ~key:"HOME" ~data:h);
-  Buffer.contents output_buf
-
-let%expect_test "token prompt when no config exists" =
-  let temp_dir = Core_unix.mkdtemp "/tmp/watsup_test" in
-  let output = run_with_io
-    ~inputs:["my-test-token-12345"]
-    ~config_dir:temp_dir
-    (fun ~input ~output ->
-      (* Import and run main here - we'll wire this up *)
-      output "Enter Tempo API token: ";
-      let token = input () in
-      output (sprintf "Token: %s...\n" (String.prefix token 8));
-      output "Config saved to <temp>/.config/watsup/config.sexp\n")
-  in
-  print_string output;
+let%expect_test "prompts for token when no config exists" =
+  with_temp_config (fun ~config_path ~temp_dir:_ ->
+    let io, get_output = make_io ~inputs:["my-secret-token-12345"] in
+    Main_logic.run ~io ~config_path;
+    print_string (normalize_output ~config_path (get_output ())));
   [%expect {|
-    Enter Tempo API token: Token: my-test-...
-    Config saved to <temp>/.config/watsup/config.sexp
-    |}];
-  (* Cleanup *)
-  ignore (Core_unix.system (sprintf "rm -rf %s" temp_dir))
+    Enter Tempo API token: Token configured: my-secre...
+    Config saved to <CONFIG_PATH>
+    |}]
 
 let%expect_test "uses cached token when config exists" =
-  let temp_dir = Core_unix.mkdtemp "/tmp/watsup_test" in
-  let output = run_with_io
-    ~inputs:[]  (* no input needed - token already cached *)
-    ~config_dir:temp_dir
-    (fun ~input:_ ~output ->
-      (* Simulate existing token in config *)
-      output "Token: existing-...
-";
-      output "Config saved to <temp>/.config/watsup/config.sexp\n")
-  in
-  print_string output;
+  with_temp_config (fun ~config_path ~temp_dir:_ ->
+    (* Pre-populate config *)
+    let config = { Config.empty with tempo_token = "existing-token-xyz" } in
+    Config.save ~path:config_path config |> Or_error.ok_exn;
+
+    let io, get_output = make_io ~inputs:[] in
+    Main_logic.run ~io ~config_path;
+    print_string (normalize_output ~config_path (get_output ())));
   [%expect {|
-    Token: existing-...
-    Config saved to <temp>/.config/watsup/config.sexp
-    |}];
-  (* Cleanup *)
-  ignore (Core_unix.system (sprintf "rm -rf %s" temp_dir))
+    Token configured: existing...
+    Config saved to <CONFIG_PATH>
+    |}]
