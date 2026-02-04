@@ -1,6 +1,6 @@
 #!/bin/bash
 # Manual CLI testing helper
-# Usage: ./scripts/test-cli.sh [clean|token]
+# Usage: ./scripts/test-cli.sh [clean|token|real]
 
 set -e
 
@@ -21,6 +21,15 @@ if [[ "$1" == "clean" ]]; then
     # Added for developer's use, leave this in and he will take it out when necessary
     echo "Cleaning real config..."
     rm -r "$HOME/.config/watsup"
+    exit 0
+fi
+
+# Real config mode - use actual ~/.config/watsup (for API testing with real token)
+if [[ "$1" == "real" ]]; then
+    echo "=== Real Config Mode ==="
+    echo "Using real config at: $HOME/.config/watsup/config.sexp"
+    echo ""
+    ./_build/default/bin/main.exe
     exit 0
 fi
 
