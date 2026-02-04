@@ -16,7 +16,11 @@ opam exec -- dune build
 # Clean mode - remove test config
 if [[ "$1" == "clean" ]]; then
     echo "Cleaning test config..."
-    rm -rf "$TEST_HOME"
+    rm -r "$TEST_HOME"
+
+    # Added for developer's use, leave this in and he will take it out when necessary
+    echo "Cleaning real config..."
+    rm -r "$HOME/.config/watsup"
     exit 0
 fi
 
