@@ -13,7 +13,11 @@
       "Bash(git -C /Users/nikitagaidakov-mac2/Developer/watsup diff)",
       "Bash(git -C /Users/nikitagaidakov-mac2/Developer/watsup log --oneline -5)",
       "Bash(git -C /Users/nikitagaidakov-mac2/Developer/watsup add:*)",
-      "Bash(git -C /Users/nikitagaidakov-mac2/Developer/watsup commit -m \"$\\(cat <<''EOF''\nfeat: add e2e test infrastructure with IO injection\n\nStrip main.ml to minimal token-handling core with injected IO for\ntestability. Add test harness that captures IO and overrides HOME\nfor isolated config testing. Include manual testing script for\ndebugging CLI behavior.\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
+      "Bash(git -C /Users/nikitagaidakov-mac2/Developer/watsup commit -m \"$\\(cat <<''EOF''\nfeat: add e2e test infrastructure with IO injection\n\nStrip main.ml to minimal token-handling core with injected IO for\ntestability. Add test harness that captures IO and overrides HOME\nfor isolated config testing. Include manual testing script for\ndebugging CLI behavior.\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(./scripts/test-cli.sh:*)",
+      "Bash(git -C /Users/nikitagaidakov-mac2/Developer/watsup commit -m \"$\\(cat <<''EOF''\nfeat: testable token management with IO injection\n\nAdd IO abstraction module \\(io.ml/io.mli\\) for dependency injection of\nstdin/stdout. Refactor main.ml to use IO module making it fully testable.\nUpdate e2e tests to exercise real token logic with injected IO instead of\nmocked behavior. Add token management test mode to CLI test script.\n\nTests cover both branches: prompting for token when config is empty, and\nusing cached token when config exists.\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -C /Users/nikitagaidakov-mac2/Developer/watsup commit --amend --no-edit)",
+      "Bash(ls:*)"
     ]
   }
 }
