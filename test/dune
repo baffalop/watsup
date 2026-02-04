@@ -1,0 +1,5 @@
+(library
+ (name test_watsup)
+ (libraries watsup core core_unix str)
+ (preprocess (pps ppx_jane))
+ (inline_tests))
