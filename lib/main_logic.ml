@@ -105,8 +105,9 @@ let run ~io ~config_path =
 
   let config =
     if String.is_empty config.jira_base_url then begin
-      io.Io.output "Enter Jira base URL (e.g., https://company.atlassian.net): ";
-      let url = io.input () in
+      io.Io.output "Enter Jira subdomain (e.g., 'company' for company.atlassian.net): ";
+      let subdomain = io.input () in
+      let url = sprintf "https://%s.atlassian.net" subdomain in
       { config with jira_base_url = url }
     end
     else config
