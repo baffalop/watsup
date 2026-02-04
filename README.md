@@ -1,4 +1,4 @@
-# Watsup: Watson, uploaded to Jira Tempo
+# Watsup
 
 An interactive tool to post your [Watson](https://github.com/jazzband/watson) logs to [Jira Tempo](https://tempo.io/).
 
