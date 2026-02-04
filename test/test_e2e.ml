@@ -55,16 +55,31 @@ let make_io ~inputs ~watson_output =
 let normalize_output ~config_path output =
   String.substr_replace_all output ~pattern:config_path ~with_:"<CONFIG_PATH>"
 
-let%expect_test "prompts for token when no config exists" =
+(* Helper to create fully configured config for testing *)
+let test_config_with_mappings mappings = {
+  Config.empty with
+  tempo_token = "test-tempo-token";
+  jira_email = "test@example.com";
+  jira_token = "test-jira-token";
+  jira_base_url = "https://test.atlassian.net";
+  jira_account_id = "test-account-id-123";
+  mappings;
+}
+
+let%expect_test "interactive flow prompts for unmapped entries" =
   with_temp_config (fun ~config_path ~temp_dir:_ ->
-    (* Inputs: token, ARCH-1 for architecture, S for breaks, n for cr, description, q to quit *)
+    (* Config has credentials but no mappings *)
+    let config = test_config_with_mappings [] in
+    Config.save ~path:config_path config |> Or_error.ok_exn;
+
+    (* Inputs: ARCH-1 for architecture, S for breaks, n for cr, description, q to quit *)
     let io, get_output = make_io
-      ~inputs:["my-secret-token-12345"; "ARCH-1"; "S"; "n"; ""; "q"]
+      ~inputs:["ARCH-1"; "S"; "n"; ""; "q"]
       ~watson_output:sample_watson_report in
     Main_logic.run ~io ~config_path;
     print_string (normalize_output ~config_path (get_output ())));
   [%expect {|
-    Enter Tempo API token: Report: Tue 03 February 2026 -> Tue 03 February 2026 (3 entries)
+    Report: Tue 03 February 2026 -> Tue 03 February 2026 (3 entries)
 
     architecture - 25m
       [ticket] assign | [n] skip | [S] skip always:
@@ -81,17 +96,16 @@ let%expect_test "prompts for token when no config exists" =
 
     Description (optional): [Enter] post | [q] quit: |}]
 
-let%expect_test "uses cached token when config exists" =
+let%expect_test "uses cached mappings with auto_extract" =
   with_temp_config (fun ~config_path ~temp_dir:_ ->
-    (* Pre-populate config with token and mappings for all entries *)
+    (* Pre-populate config with all credentials and mappings *)
     let config = {
-      Config.empty with
-      tempo_token = "existing-token-xyz";
-      mappings = [
+      (test_config_with_mappings [
         ("architecture", Config.Ticket "ARCH-1");
         ("breaks", Config.Skip);
         ("cr", Config.Auto_extract);
-      ];
+      ]) with
+      tempo_token = "existing-token-xyz";
     } in
     Config.save ~path:config_path config |> Or_error.ok_exn;
 
@@ -115,10 +129,10 @@ let%expect_test "uses cached token when config exists" =
 
     Description (optional): [Enter] post | [q] quit: |}]
 
-let%expect_test "parses watson report and lists entries" =
+let%expect_test "handles empty watson report" =
   with_temp_config (fun ~config_path ~temp_dir:_ ->
-    (* Pre-populate config with token *)
-    let config = { Config.empty with tempo_token = "test-token-123" } in
+    (* Pre-populate config with all credentials *)
+    let config = test_config_with_mappings [] in
     Config.save ~path:config_path config |> Or_error.ok_exn;
 
     let io, get_output = make_io ~inputs:[] ~watson_output:empty_watson_report in
@@ -130,9 +144,9 @@ let%expect_test "parses watson report and lists entries" =
     === Summary ===
     |}]
 
-let%expect_test "interactive flow with mixed inputs" =
+let%expect_test "interactive flow with mixed decisions" =
   with_temp_config (fun ~config_path ~temp_dir:_ ->
-    let config = { Config.empty with tempo_token = "test-token" } in
+    let config = test_config_with_mappings [] in
     Config.save ~path:config_path config |> Or_error.ok_exn;
 
     let watson = {|Mon 03 February 2026 -> Mon 03 February 2026
@@ -165,13 +179,12 @@ Total: 2h 30m 00s|} in
 
     Description (optional): [Enter] post | [q] quit: |}]
 
-let%expect_test "uses cached mappings on subsequent runs" =
+let%expect_test "skips prompts for cached mappings" =
   with_temp_config (fun ~config_path ~temp_dir:_ ->
-    let config = {
-      Config.empty with
-      tempo_token = "test-token";
-      mappings = [("coding", Config.Ticket "PROJ-123"); ("breaks", Config.Skip)];
-    } in
+    let config = test_config_with_mappings [
+      ("coding", Config.Ticket "PROJ-123");
+      ("breaks", Config.Skip);
+    ] in
     Config.save ~path:config_path config |> Or_error.ok_exn;
 
     let watson = {|Mon 03 February 2026 -> Mon 03 February 2026
@@ -182,7 +195,7 @@ breaks - 45m 00s
 
 Total: 2h 15m 00s|} in
 
-    (* Inputs: description, q to quit *)
+    (* Inputs: description, q to quit - no entry prompts needed *)
     let io, get_output = make_io
       ~inputs:[""; "q"]
       ~watson_output:watson in
