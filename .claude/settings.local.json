@@ -18,7 +18,12 @@
       "Bash(git -C /Users/nikitagaidakov-mac2/Developer/watsup commit -m \"$\\(cat <<''EOF''\nfeat: testable token management with IO injection\n\nAdd IO abstraction module \\(io.ml/io.mli\\) for dependency injection of\nstdin/stdout. Refactor main.ml to use IO module making it fully testable.\nUpdate e2e tests to exercise real token logic with injected IO instead of\nmocked behavior. Add token management test mode to CLI test script.\n\nTests cover both branches: prompting for token when config is empty, and\nusing cached token when config exists.\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(git -C /Users/nikitagaidakov-mac2/Developer/watsup commit --amend --no-edit)",
       "Bash(ls:*)",
-      "Bash(dune runtest:*)"
+      "Bash(dune runtest:*)",
+      "WebFetch(domain:apidocs.tempo.io)",
+      "WebSearch",
+      "WebFetch(domain:help.tempo.io)",
+      "WebFetch(domain:tempo-io.atlassian.net)",
+      "Bash(opam list:*)"
     ]
   }
 }
