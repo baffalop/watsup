@@ -34,14 +34,19 @@ let with_temp_config f =
 let make_io ~inputs ~watson_output =
   let input_queue = Queue.of_list inputs in
   let output_buf = Buffer.create 256 in
+  let dequeue_input () =
+    match Queue.dequeue input_queue with
+    | Some line -> line
+    | None -> failwith "No more input available"
+  in
   let io = Io.create
-    ~input:(fun () ->
-      match Queue.dequeue input_queue with
-      | Some line -> line
-      | None -> failwith "No more input available")
+    ~input:dequeue_input
+    ~input_secret:dequeue_input
     ~output:(fun s -> Buffer.add_string output_buf s)
     ~run_command:(fun _cmd -> watson_output)
     ~http_post:(fun ~url:_ ~headers:_ ~body:_ ->
+      Lwt.return { Io.status = 200; body = "{}" })
+    ~http_get:(fun ~url:_ ~headers:_ ->
       Lwt.return { Io.status = 200; body = "{}" })
   in
   (io, fun () -> Buffer.contents output_buf)
