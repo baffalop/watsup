@@ -1,13 +1,14 @@
 open Core
 
 (* Jira API helpers *)
-let jira_auth_header ~token =
-  ("Authorization", sprintf "Bearer %s" token)
+let jira_auth_header ~email ~token =
+  let encoded = Base64.encode_exn (sprintf "%s:%s" email token) in
+  ("Authorization", sprintf "Basic %s" encoded)
 
 let fetch_jira_account_id ~io ~config =
   let url = sprintf "%s/rest/api/2/myself" config.Config.jira_base_url in
   let headers = [
-    jira_auth_header ~token:config.jira_token;
+    jira_auth_header ~email:config.jira_email ~token:config.jira_token;
     ("Accept", "application/json");
   ] in
   let response = Lwt_main.run @@ io.Io.http_get ~url ~headers in
@@ -22,7 +23,7 @@ let fetch_jira_account_id ~io ~config =
 let fetch_jira_issue_id ~io ~config ~ticket =
   let url = sprintf "%s/rest/api/2/issue/%s?fields=id" config.Config.jira_base_url ticket in
   let headers = [
-    jira_auth_header ~token:config.jira_token;
+    jira_auth_header ~email:config.jira_email ~token:config.jira_token;
     ("Accept", "application/json");
   ] in
   let response = Lwt_main.run @@ io.Io.http_get ~url ~headers in
@@ -118,8 +119,17 @@ let run ~io ~config_path =
   in
 
   let config =
+    if String.is_empty config.jira_email then begin
+      io.Io.output "Enter Jira email: ";
+      let email = io.input () in
+      { config with jira_email = email }
+    end
+    else config
+  in
+
+  let config =
     if String.is_empty config.jira_token then begin
-      io.Io.output "Enter Jira OAuth token: ";
+      io.Io.output "Enter Jira API token (https://id.atlassian.com/manage-profile/security/api-tokens): ";
       let token = io.input_secret () in
       { config with jira_token = token }
     end
