@@ -140,12 +140,36 @@ let prompt_for_entry ~io entry =
   io.Io.output @@ sprintf "\n%s - %s\n"
     entry.Watson.project
     (Duration.to_string @@ Duration.round_5min entry.total);
-  io.output "  [ticket] assign | [n] skip | [S] skip always: ";
+  let has_tags = not (List.is_empty entry.tags) in
+  if has_tags then
+    List.iter entry.tags ~f:(fun tag ->
+      io.output @@ sprintf "  [%-8s %s]\n" tag.Watson.name
+        (Duration.to_string @@ Duration.round_5min tag.duration));
+  let prompt_str = if has_tags
+    then "  [ticket] assign all | [s] split by tags | [n] skip | [S] skip always: "
+    else "  [ticket] assign | [n] skip | [S] skip always: "
+  in
+  io.output prompt_str;
   let input = io.input () in
   match input with
   | "n" -> Processor.Skip_once
   | "S" -> Processor.Skip_always
+  | "s" when has_tags -> Processor.Split
   | ticket -> Processor.Accept ticket
+
+let prompt_for_tag ~io ~project:_ tag =
+  io.Io.output @@ sprintf "  [%-8s %s] [ticket] assign | [n] skip: "
+    tag.Watson.name
+    (Duration.to_string @@ Duration.round_5min tag.Watson.duration);
+  let input = io.input () in
+  match input with
+  | "n" -> Processor.Tag_skip
+  | "" when Ticket.is_ticket_pattern tag.name -> Processor.Tag_accept tag.name
+  | ticket -> Processor.Tag_accept ticket
+
+let prompt_description ~io ticket =
+  io.Io.output @@ sprintf "  Description for %s (optional): " ticket;
+  io.input ()
 
 (* Parse date from Watson date_range like "Tue 03 February 2026 -> Tue 03 February 2026" *)
 let parse_date_from_range date_range =
@@ -204,7 +228,133 @@ let post_worklog ~io ~token ~issue_id ~author_account_id ~duration ~date ~descri
   let body = build_worklog_json ~issue_id ~author_account_id ~duration_seconds ~date ~description ~attributes in
   io.Io.http_post ~url ~headers ~body
 
-let run ~io ~config_path =
+let run_day ~io ~config_path:_ ~config ~date =
+  (* Parse watson report *)
+  let watson_cmd = sprintf "watson report -G -f %s -t %s" date date in
+  let watson_output = io.Io.run_command watson_cmd in
+  let report = Watson.parse watson_output |> Or_error.ok_exn in
+
+  io.output @@ sprintf "Report: %s (%d entries)\n"
+    report.date_range (List.length report.entries);
+
+  (* Process each entry - using fold for O(n) instead of O(n²) append *)
+  let all_decisions, config =
+    List.fold report.entries ~init:([], config) ~f:(fun (acc_decisions, cfg) entry ->
+      let cached = Config.get_mapping cfg entry.project in
+      let decisions, new_mapping = Processor.process_entry
+        ~entry ~cached
+        ~prompt:(prompt_for_entry ~io)
+        ~tag_prompt:(prompt_for_tag ~io ~project:entry.project)
+        ~describe:(prompt_description ~io)
+        () in
+      let cfg' = Option.value_map new_mapping ~default:cfg
+        ~f:(fun m -> Config.set_mapping cfg entry.project m) in
+      (List.rev_append decisions acc_decisions, cfg'))
+  in
+  let all_decisions = List.rev all_decisions in
+
+  (* Summary *)
+  io.output "\n=== Summary ===\n";
+  let posts, skips = List.partition_tf all_decisions ~f:(function
+    | Processor.Post _ -> true
+    | Processor.Skip _ -> false) in
+
+  List.iter posts ~f:(function
+    | Processor.Post { ticket; duration; source; _ } ->
+      io.output @@ sprintf "POST: %s (%s) from %s\n" ticket (Duration.to_string duration) source
+    | Processor.Skip _ -> ());
+
+  List.iter skips ~f:(function
+    | Processor.Skip { project; duration } ->
+      io.output @@ sprintf "SKIP: %s (%s)\n" project (Duration.to_string duration)
+    | Processor.Post _ -> ());
+
+  (* If there are posts, ask for confirmation and post to Tempo *)
+  if not (List.is_empty posts) then begin
+    io.output "\n=== Worklogs to Post ===\n";
+    List.iter posts ~f:(function
+      | Processor.Post { ticket; duration; source = _; description } ->
+        let desc_suffix = if String.is_empty description then ""
+          else sprintf " - %s" description in
+        io.output @@ sprintf "  %s: %s%s\n" ticket (Duration.to_string duration) desc_suffix
+      | Processor.Skip _ -> ());
+
+    io.output "[Enter] post | [n] skip day: ";
+    let confirm = io.input () in
+
+    if not (String.equal confirm "n") then begin
+      let date = parse_date_from_range report.date_range in
+      io.output "\n=== Posting ===\n";
+
+      (* Resolve issue IDs and post worklogs, accumulating config changes *)
+      let results, config =
+        List.fold posts ~init:([], config) ~f:(fun (acc, cfg) decision ->
+          match decision with
+          | Processor.Post { ticket; duration; source = _; description } ->
+            (* Look up or fetch issue ID + account key *)
+            let issue_id, account_key, cfg =
+              match Config.get_issue_id cfg ticket, Config.get_account_key cfg ticket with
+              | Some id, Some key -> (id, Some key, cfg)
+              | _ ->
+                io.output @@ sprintf "  Looking up %s... " ticket;
+                match fetch_jira_issue_info ~io ~config:cfg ~ticket with
+                | Ok (id, account_id) ->
+                  let cfg = Config.set_issue_id cfg ticket id in
+                  (* Resolve account ID to Tempo account key *)
+                  let account_key, cfg = match account_id with
+                    | Some acct_id ->
+                      (match fetch_tempo_account_key ~io ~token:cfg.tempo_token ~account_id:acct_id with
+                       | Ok key ->
+                         io.output @@ sprintf "OK (id=%d, account=%s)\n" id key;
+                         (Some key, Config.set_account_key cfg ticket key)
+                       | Error msg ->
+                         io.output @@ sprintf "OK (id=%d)\n" id;
+                         io.output @@ sprintf "  Warning: could not resolve account %s: %s\n" acct_id msg;
+                         (None, cfg))
+                    | None ->
+                      io.output @@ sprintf "OK (id=%d)\n" id;
+                      (None, cfg)
+                  in
+                  (id, account_key, cfg)
+                | Error msg ->
+                  io.output @@ sprintf "FAILED: %s\n" msg;
+                  failwith @@ sprintf "Could not fetch issue info for %s" ticket
+            in
+            let attributes =
+              (match account_key with
+               | Some key when not (String.is_empty cfg.tempo_account_attr_key) ->
+                 [(cfg.tempo_account_attr_key, key)]
+               | _ -> [])
+              @ (match cfg.category with
+                 | Some cat when not (String.is_empty cfg.tempo_category_attr_key) ->
+                   [(cfg.tempo_category_attr_key, cat.selected)]
+                 | _ -> [])
+            in
+            let response = Lwt_main.run @@
+              post_worklog ~io ~token:cfg.tempo_token
+                ~issue_id ~author_account_id:cfg.jira_account_id
+                ~duration ~date ~description ~attributes in
+            let success = response.Io.status >= 200 && response.status < 300 in
+            if success then
+              io.output @@ sprintf "%s: OK\n" ticket
+            else begin
+              io.output @@ sprintf "%s: FAILED (%d)\n" ticket response.status;
+              io.output @@ sprintf "  Response: %s\n" response.body
+            end;
+            (success :: acc, cfg)
+          | Processor.Skip _ -> (acc, cfg))
+      in
+
+      let ok_count = List.count results ~f:Fn.id in
+      let total_count = List.length results in
+      io.output @@ sprintf "\nPosted %d/%d worklogs\n" ok_count total_count;
+      config
+    end
+    else config
+  end
+  else config
+
+let run ~io ~config_path ~dates =
   let config = Config.load ~path:config_path |> Or_error.ok_exn in
 
   (* Credential prompts *)
@@ -333,130 +483,17 @@ let run ~io ~config_path =
     | None -> config
   in
 
-  (* Save config after credential collection *)
+  (* Save config after category selection *)
   Config.save ~path:config_path config |> Or_error.ok_exn;
 
-  (* Parse watson report *)
-  let watson_output = io.run_command "watson report -dG" in
-  let report = Watson.parse watson_output |> Or_error.ok_exn in
-
-  io.output @@ sprintf "Report: %s (%d entries)\n"
-    report.date_range (List.length report.entries);
-
-  (* Process each entry - using fold for O(n) instead of O(n²) append *)
-  let all_decisions, config =
-    List.fold report.entries ~init:([], config) ~f:(fun (acc_decisions, cfg) entry ->
-      let cached = Config.get_mapping cfg entry.project in
-      let decisions, new_mapping = Processor.process_entry
-        ~entry ~cached
-        ~prompt:(prompt_for_entry ~io) in
-      let cfg' = Option.value_map new_mapping ~default:cfg
-        ~f:(fun m -> Config.set_mapping cfg entry.project m) in
-      (List.rev_append decisions acc_decisions, cfg'))
+  (* Process each date *)
+  let multi_day = List.length dates > 1 in
+  let config =
+    List.fold dates ~init:config ~f:(fun cfg date ->
+      if multi_day then
+        io.output @@ sprintf "\n=== %s ===\n" date;
+      run_day ~io ~config_path ~config:cfg ~date)
   in
-  let all_decisions = List.rev all_decisions in
 
-  (* Summary *)
-  io.output "\n=== Summary ===\n";
-  let posts, skips = List.partition_tf all_decisions ~f:(function
-    | Processor.Post _ -> true
-    | Processor.Skip _ -> false) in
-
-  List.iter posts ~f:(function
-    | Processor.Post { ticket; duration; source } ->
-      io.output @@ sprintf "POST: %s (%s) from %s\n" ticket (Duration.to_string duration) source
-    | Processor.Skip _ -> ());
-
-  List.iter skips ~f:(function
-    | Processor.Skip { project; duration } ->
-      io.output @@ sprintf "SKIP: %s (%s)\n" project (Duration.to_string duration)
-    | Processor.Post _ -> ());
-
-  (* If there are posts, ask for confirmation and post to Tempo *)
-  if not (List.is_empty posts) then begin
-    io.output "\n=== Worklogs to Post ===\n";
-    List.iter posts ~f:(function
-      | Processor.Post { ticket; duration; source = _ } ->
-        io.output @@ sprintf "  %s: %s\n" ticket (Duration.to_string duration)
-      | Processor.Skip _ -> ());
-
-    io.output "\nDescription (optional): ";
-    let description = io.input () in
-
-    io.output "[Enter] post | [q] quit: ";
-    let confirm = io.input () in
-
-    if not (String.equal confirm "q") then begin
-      let date = parse_date_from_range report.date_range in
-      io.output "\n=== Posting ===\n";
-
-      (* Resolve issue IDs and post worklogs, accumulating config changes *)
-      let results, config =
-        List.fold posts ~init:([], config) ~f:(fun (acc, cfg) decision ->
-          match decision with
-          | Processor.Post { ticket; duration; source = _ } ->
-            (* Look up or fetch issue ID + account key *)
-            let issue_id, account_key, cfg =
-              match Config.get_issue_id cfg ticket, Config.get_account_key cfg ticket with
-              | Some id, Some key -> (id, Some key, cfg)
-              | _ ->
-                io.output @@ sprintf "  Looking up %s... " ticket;
-                match fetch_jira_issue_info ~io ~config:cfg ~ticket with
-                | Ok (id, account_id) ->
-                  let cfg = Config.set_issue_id cfg ticket id in
-                  (* Resolve account ID to Tempo account key *)
-                  let account_key, cfg = match account_id with
-                    | Some acct_id ->
-                      (match fetch_tempo_account_key ~io ~token:cfg.tempo_token ~account_id:acct_id with
-                       | Ok key ->
-                         io.output @@ sprintf "OK (id=%d, account=%s)\n" id key;
-                         (Some key, Config.set_account_key cfg ticket key)
-                       | Error msg ->
-                         io.output @@ sprintf "OK (id=%d)\n" id;
-                         io.output @@ sprintf "  Warning: could not resolve account %s: %s\n" acct_id msg;
-                         (None, cfg))
-                    | None ->
-                      io.output @@ sprintf "OK (id=%d)\n" id;
-                      (None, cfg)
-                  in
-                  (id, account_key, cfg)
-                | Error msg ->
-                  io.output @@ sprintf "FAILED: %s\n" msg;
-                  failwith @@ sprintf "Could not fetch issue info for %s" ticket
-            in
-            let attributes =
-              (match account_key with
-               | Some key when not (String.is_empty cfg.tempo_account_attr_key) ->
-                 [(cfg.tempo_account_attr_key, key)]
-               | _ -> [])
-              @ (match cfg.category with
-                 | Some cat when not (String.is_empty cfg.tempo_category_attr_key) ->
-                   [(cfg.tempo_category_attr_key, cat.selected)]
-                 | _ -> [])
-            in
-            let response = Lwt_main.run @@
-              post_worklog ~io ~token:cfg.tempo_token
-                ~issue_id ~author_account_id:cfg.jira_account_id
-                ~duration ~date ~description ~attributes in
-            let success = response.Io.status >= 200 && response.status < 300 in
-            if success then
-              io.output @@ sprintf "%s: OK\n" ticket
-            else begin
-              io.output @@ sprintf "%s: FAILED (%d)\n" ticket response.status;
-              io.output @@ sprintf "  Response: %s\n" response.body
-            end;
-            (success :: acc, cfg)
-          | Processor.Skip _ -> (acc, cfg))
-      in
-
-      let ok_count = List.count results ~f:Fn.id in
-      let total_count = List.length results in
-      io.output @@ sprintf "\nPosted %d/%d worklogs\n" ok_count total_count;
-      (* Save config with cached issue IDs *)
-      Config.save ~path:config_path config |> Or_error.ok_exn
-    end
-    else
-      Config.save ~path:config_path config |> Or_error.ok_exn
-  end
-  else
-    Config.save ~path:config_path config |> Or_error.ok_exn
+  (* Save final config *)
+  Config.save ~path:config_path config |> Or_error.ok_exn
