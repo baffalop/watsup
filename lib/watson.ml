@@ -70,7 +70,10 @@ let%expect_test "parse tag line" =
   [%expect {| ((name FK-3080) (duration 2015)) |}]
 
 let project_name =
-  take_while1 (fun c -> (not (Char.is_whitespace c)) && not (Char.equal c '-'))
+  let word = take_while1 (fun c -> (not (Char.is_whitespace c)) && not (Char.equal c '-')) in
+  let* first = word in
+  let* rest = many (char '-' *> word >>| fun w -> "-" ^ w) in
+  return @@ String.concat (first :: rest)
 
 let project_line =
   let* name = project_name <* ws in
@@ -88,7 +91,11 @@ let%expect_test "parse project line" =
   test "packaday - 2h 28m 32s";
   [%expect {| (packaday 8912) |}];
   test "cr - 51m 02s";
-  [%expect {| (cr 3062) |}]
+  [%expect {| (cr 3062) |}];
+  test "ranting-and-raving - 03s";
+  [%expect {| (ranting-and-raving 3) |}];
+  test "maxim - 11s";
+  [%expect {| (maxim 11) |}]
 
 let newline = char '\n'
 
