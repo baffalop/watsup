@@ -18,6 +18,7 @@ type t = {
   jira_base_url : string;
   jira_account_id : string;  (* Cached after first lookup *)
   issue_ids : (string * int) list;  (* ticket key -> numeric ID cache *)
+  account_keys : (string * string) list;  (* ticket key -> Tempo account key *)
   category : category_cache option;
   mappings : (string * mapping) list;
 }
@@ -33,3 +34,5 @@ val get_mapping : t -> string -> mapping option
 val set_mapping : t -> string -> mapping -> t
 val get_issue_id : t -> string -> int option
 val set_issue_id : t -> string -> int -> t
+val get_account_key : t -> string -> string option
+val set_account_key : t -> string -> string -> t

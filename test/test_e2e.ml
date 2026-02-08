@@ -221,10 +221,11 @@ Total: 2h 15m 00s|} in
 
 let%expect_test "posts worklogs with mocked HTTP" =
   with_temp_config (fun ~config_path ~temp_dir:_ ->
-    (* Config with cached issue ID to skip Jira lookup *)
+    (* Config with both issue ID and account key cached *)
     let config = {
       (test_config_with_mappings [("coding", Config.Ticket "PROJ-123")]) with
       issue_ids = [("PROJ-123", 12345)];
+      account_keys = [("PROJ-123", "ACCT-1")];
     } in
     Config.save ~path:config_path config |> Or_error.ok_exn;
 
@@ -262,6 +263,7 @@ let%expect_test "handles failed POST with error message" =
     let config = {
       (test_config_with_mappings [("coding", Config.Ticket "PROJ-123")]) with
       issue_ids = [("PROJ-123", 12345)];
+      account_keys = [("PROJ-123", "ACCT-1")];
     } in
     Config.save ~path:config_path config |> Or_error.ok_exn;
 
@@ -307,10 +309,15 @@ coding - 1h 00m 00s
 
 Total: 1h 00m 00s|} in
 
-    (* Mock Jira issue lookup returning ID, then successful POST *)
+    (* Mock Jira issue lookup returning ID + Account field, then successful POST *)
+    let jira_issue_response = {|{
+      "id": "67890",
+      "names": {"customfield_10201": "Account"},
+      "fields": {"customfield_10201": {"key": "ACCT-2"}}
+    }|} in
     let io, get_output = make_io
       ~inputs:[""; ""]
-      ~http_get_responses:[{ Io.status = 200; body = "{\"id\": \"67890\"}" }]
+      ~http_get_responses:[{ Io.status = 200; body = jira_issue_response }]
       ~http_post_responses:[{ Io.status = 200; body = "{}" }]
       ~watson_output:watson () in
     Main_logic.run ~io ~config_path;
@@ -326,7 +333,7 @@ Total: 1h 00m 00s|} in
 
     Description (optional): [Enter] post | [q] quit:
     === Posting ===
-      Looking up PROJ-123... OK (67890)
+      Looking up PROJ-123... OK (id=67890, account=ACCT-2)
     PROJ-123: OK
 
     Posted 1/1 worklogs

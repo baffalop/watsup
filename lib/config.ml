@@ -20,6 +20,7 @@ type t = {
   jira_base_url : string [@default ""];
   jira_account_id : string [@default ""];
   issue_ids : (string * int) list [@default []];
+  account_keys : (string * string) list [@default []];  (* ticket key -> Tempo account key *)
   category : category_cache option [@default None];
   mappings : (string * mapping) list [@default []];
 }
@@ -38,6 +39,7 @@ let empty = {
   jira_base_url = "";
   jira_account_id = "";
   issue_ids = [];
+  account_keys = [];
   category = None;
   mappings = [];
 }
@@ -79,6 +81,15 @@ let set_issue_id config ticket issue_id =
     List.Assoc.add config.issue_ids ~equal:String.equal ticket issue_id
   in
   { config with issue_ids }
+
+let get_account_key config ticket =
+  List.Assoc.find config.account_keys ~equal:String.equal ticket
+
+let set_account_key config ticket account_key =
+  let account_keys =
+    List.Assoc.add config.account_keys ~equal:String.equal ticket account_key
+  in
+  { config with account_keys }
 
 let%expect_test "config round trip" =
   let path = Stdlib.Filename.temp_file "watsup_test" ".sexp" in
