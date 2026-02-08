@@ -34,17 +34,20 @@ let real_http_get ~url ~headers =
   Lwt.return { status; body = body_str }
 
 let read_secret () =
-  (* Disable terminal echo for password input *)
-  let fd = Core_unix.File_descr.of_int 0 in  (* stdin = fd 0 *)
-  let termios = Core_unix.Terminal_io.tcgetattr fd in
-  let original_echo = termios.c_echo in
-  termios.c_echo <- false;
-  Core_unix.Terminal_io.tcsetattr termios fd ~mode:TCSANOW;
-  let result = In_channel.(input_line_exn stdin) in
-  termios.c_echo <- original_echo;
-  Core_unix.Terminal_io.tcsetattr termios fd ~mode:TCSANOW;
-  Out_channel.(output_string stdout "\n"; flush stdout);
-  result
+  (* Disable terminal echo for password input, falling back to plain read if not a TTY *)
+  let fd = Core_unix.File_descr.of_int 0 in
+  match Core_unix.Terminal_io.tcgetattr fd with
+  | termios ->
+    let original_echo = termios.c_echo in
+    termios.c_echo <- false;
+    Core_unix.Terminal_io.tcsetattr termios fd ~mode:TCSANOW;
+    let result = In_channel.(input_line_exn stdin) in
+    termios.c_echo <- original_echo;
+    Core_unix.Terminal_io.tcsetattr termios fd ~mode:TCSANOW;
+    Out_channel.(output_string stdout "\n"; flush stdout);
+    result
+  | exception Core_unix.Unix_error _ ->
+    In_channel.(input_line_exn stdin)
 
 let stdio = {
   input = (fun () -> In_channel.(input_line_exn stdin));

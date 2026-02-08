@@ -23,7 +23,15 @@
       "WebSearch",
       "WebFetch(domain:help.tempo.io)",
       "WebFetch(domain:tempo-io.atlassian.net)",
-      "Bash(opam list:*)"
+      "Bash(opam list:*)",
+      "Bash(git checkout:*)",
+      "Bash(ocamlfind list:*)",
+      "Bash(ocamlfind query:*)",
+      "Bash(dune describe:*)",
+      "Bash(git status:*)",
+      "WebFetch(domain:openapi.tempo.io)",
+      "Bash(watson report:*)",
+      "Bash(/Users/nikitagaidakov-mac2/Developer/watsup/scripts/restore.sh:*)"
     ]
   }
 }

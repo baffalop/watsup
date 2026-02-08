@@ -18,6 +18,8 @@ opam exec -- dune exec watsup
 
 **Important:** Always use `opam exec -- dune` for all dune commands. The local opam switch won't be in PATH otherwise.
 
+**Note:** `dune runtest` builds first automatically. No need to run `dune build` before `dune runtest`.
+
 ## Style Guide
 
 ### Operator Preferences
@@ -59,6 +61,20 @@ List.iter posts ~f:(function
   | Processor.Post { ticket; duration; source } -> handle_post ticket duration source
   | _ -> ())
 ```
+
+### Labelled Tuples (OCaml 5.4+)
+
+Prefer labelled tuples over comments to document tuple fields:
+
+```ocaml
+(* Good - self-documenting *)
+val get_issue : string -> (ticket:string * id:int) option
+
+(* Avoid - relies on comments *)
+val get_issue : string -> (string * int) option  (* ticket key, numeric ID *)
+```
+
+**Caveat:** `ppx_jane` does not yet support labelled tuples in derived types. For `[@@deriving sexp]` record fields, use plain tuples with comments until ppx support lands.
 
 ### Module Conventions
 
@@ -140,15 +156,35 @@ Use `scripts/test-cli.sh` for real CLI testing:
 # Run with isolated test config (won't affect real config)
 ./scripts/test-cli.sh
 
-# Run with real config (for API testing)
+# Run with real config (for API testing) - interactive
 ./scripts/test-cli.sh real
 
-# Clean test config
+# Run with real config - piped inputs (each arg becomes a stdin line)
+./scripts/test-cli.sh real S S LOG-44 "test description" ""
+
+# Restore credentials after clean (pipes saved tokens directly to CLI)
+./scripts/test-cli.sh restore
+
+# Clean all config (real + test)
 ./scripts/test-cli.sh clean
 
 # Token management tests
 ./scripts/test-cli.sh token
 ```
+
+#### API Testing (`restore` + `real`)
+
+Changes that affect API interaction (auth, endpoints, request bodies) must be verified against the real Jira/Tempo APIs using `restore` + `real`. A testing strategy must be agreed with the user before running these commands, since they make real API calls and may create/modify actual worklogs.
+
+Typical workflow:
+
+```bash
+./scripts/test-cli.sh clean           # wipe config
+./scripts/test-cli.sh restore         # re-inject credentials
+./scripts/test-cli.sh real S S LOG-44 test ""  # test with piped inputs
+```
+
+The `restore` command reads token files stored outside the repo (two directories up: `.watsup-ttk`, `.watsup-jtk`) and pipes them directly to the CLI credential prompts. No intermediate files are created.
 
 ## Expect Test Workflow
 

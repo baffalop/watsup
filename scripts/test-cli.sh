@@ -1,6 +1,6 @@
 #!/bin/bash
 # Manual CLI testing helper
-# Usage: ./scripts/test-cli.sh [clean|token|real]
+# Usage: ./scripts/test-cli.sh [clean|token|real|restore]
 
 set -e
 
@@ -24,12 +24,33 @@ if [[ "$1" == "clean" ]]; then
     exit 0
 fi
 
+# Restore mode - pipe saved tokens directly to the CLI to recreate config
+# Token files are stored outside the repo (two dirs up)
+if [[ "$1" == "restore" ]]; then
+    TOKEN_DIR="$(dirname "$(dirname "$PROJECT_DIR")")"
+    TTK="$TOKEN_DIR/.watsup-ttk"
+    JTK="$TOKEN_DIR/.watsup-jtk"
+    if [[ ! -f "$TTK" || ! -f "$JTK" ]]; then
+        echo "Token files not found at $TOKEN_DIR/.watsup-{ttk,jtk}"
+        exit 1
+    fi
+    echo "=== Restoring credentials ==="
+    cat "$TTK" <(printf '\npodfather\nngaidakov@podfather.com\n') "$JTK" | ./_build/default/bin/main.exe
+    exit 0
+fi
+
 # Real config mode - use actual ~/.config/watsup (for API testing with real token)
+# Extra args after "real" are piped as stdin lines to the CLI
 if [[ "$1" == "real" ]]; then
     echo "=== Real Config Mode ==="
     echo "Using real config at: $HOME/.config/watsup/config.sexp"
     echo ""
-    ./_build/default/bin/main.exe
+    shift  # remove "real"
+    if [[ $# -gt 0 ]]; then
+        printf '%s\n' "$@" | ./_build/default/bin/main.exe
+    else
+        ./_build/default/bin/main.exe
+    fi
     exit 0
 fi
 
