@@ -49,16 +49,34 @@ if [[ "$1" == "restore" ]]; then
 fi
 
 # Real config mode - use actual ~/.config/watsup (for API testing with real token)
-# Extra args after "real" are piped as stdin lines to the CLI
+# Args before "--" are piped as stdin lines; args after "--" are CLI args to the binary.
+# Examples:
+#   ./scripts/test-cli.sh real S S LOG-44 "desc" ""           # stdin only
+#   ./scripts/test-cli.sh real -- -d -1                        # CLI args only
+#   ./scripts/test-cli.sh real S S -- -d -1                    # stdin + CLI args
 if [[ "$1" == "real" ]]; then
     echo "=== Real Config Mode ==="
     echo "Using real config at: $HOME/.config/watsup/config.sexp"
     echo ""
     shift  # remove "real"
-    if [[ $# -gt 0 ]]; then
-        printf '%s\n' "$@" | ./_build/default/bin/main.exe
+    STDIN_ARGS=()
+    CLI_ARGS=()
+    found_separator=false
+    for arg in "$@"; do
+        if [[ "$arg" == "--" ]]; then
+            found_separator=true
+            continue
+        fi
+        if $found_separator; then
+            CLI_ARGS+=("$arg")
+        else
+            STDIN_ARGS+=("$arg")
+        fi
+    done
+    if [[ ${#STDIN_ARGS[@]} -gt 0 ]]; then
+        printf '%s\n' "${STDIN_ARGS[@]}" | ./_build/default/bin/main.exe "${CLI_ARGS[@]}"
     else
-        ./_build/default/bin/main.exe
+        ./_build/default/bin/main.exe "${CLI_ARGS[@]}"
     fi
     exit 0
 fi

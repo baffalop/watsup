@@ -38,7 +38,7 @@ Each feature is built as a testable increment:
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         bin/main.ml                             │
-│                    (thin entry point)                           │
+│            (CLI arg parsing with Climate, date resolution)      │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -63,22 +63,23 @@ Each feature is built as a testable increment:
 | `Config` | Configuration persistence (tokens, mappings, cached issue IDs, work attributes) |
 | `Watson` | Parse Watson CLI output into structured entries |
 | `Duration` | Time duration parsing and formatting |
-| `Processor` | Pure entry processing logic (ticket assignment, skip decisions) |
+| `Processor` | Pure entry processing logic (ticket assignment, skip, split decisions) |
 | `Ticket` | Extract ticket IDs from tags |
 | `Main_logic` | Orchestrate the full workflow |
 
 ### Data Flow
 
 ```
-Watson CLI → Parse → Process Entries → Prompt User → Resolve IDs → POST to Tempo
-    │                     │                              │              │
-    │                     ▼                              ▼              ▼
-    │              Use cached mappings           Use cached issue    Include work
-    │              or prompt for new             IDs + account keys  attributes
-    │                     │                     or fetch from        (Account +
-    │                     │                     Jira + Tempo         Category)
-    │                     ▼                              │
-    └──────────────► Save to Config ◄────────────────────┘
+CLI Args → Resolve Dates → [Per Day Loop]:
+  Watson CLI → Parse → Process Entries → Prompt User → Resolve IDs → POST to Tempo
+      │                     │                │               │              │
+      │                     ▼                ▼               ▼              ▼
+      │              Use cached mappings  Per-ticket    Use cached issue  Include work
+      │              or prompt for new    description   IDs + account     attributes
+      │              (split by tags)      prompt        keys or fetch     (Account +
+      │                     │                           from Jira/Tempo   Category)
+      │                     ▼                                  │
+      └──────────────► Save to Config ◄────────────────────────┘
 ```
 
 ## Configuration
@@ -111,6 +112,17 @@ Config is stored at `~/.config/watsup/config.sexp`:
 - `Skip` - Never post (e.g., breaks)
 - `Auto_extract` - Extract ticket IDs from tags (e.g., `cr` with tags `FK-123`, `FK-456`)
 
+## CLI Usage
+
+```bash
+watsup                              # today (default)
+watsup -d 2026-02-05                # specific ISO date
+watsup -d -2                        # 2 days ago (relative)
+watsup -f 2026-02-03 -t 2026-02-07  # range, processed day-by-day
+```
+
+Date ranges are processed one day at a time, each with its own entry prompts, summary, and confirmation step. Skipping a day (`n` at confirmation) continues to the next day.
+
 ## Outstanding Features
 
 ### Blocking: OAuth 2.0 Authorization Code Flow
@@ -125,9 +137,11 @@ Jira Cloud requires proper OAuth 2.0 flow for granular scopes:
 ### Future Enhancements
 
 - [ ] `--dry-run` flag to preview without posting
-- [ ] Date range selection (not just today)
 - [ ] Edit/delete previously posted worklogs
 - [x] Tempo work attributes (category, account)
+- [x] Date range selection (`-d`, `-f`/`-t`)
+- [x] Split entries by tags with per-tag ticket assignment
+- [x] Per-ticket description prompts
 - [ ] Multiple Jira instance support
 - [ ] Config validation and migration tooling
 
@@ -137,6 +151,7 @@ Jira Cloud requires proper OAuth 2.0 flow for granular scopes:
 - **Core** - Standard library replacement
 - **Angstrom** - Parser combinators for Watson output
 - **Cohttp-lwt-unix** - HTTP client
+- **Climate** - Declarative CLI argument parsing
 - **ppx_jane** - Sexp derivation and inline tests
 - **ppx_expect** - Expect tests
 - **Yojson** - JSON parsing/generation

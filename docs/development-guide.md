@@ -14,6 +14,10 @@ opam exec -- dune runtest
 
 # Run the CLI
 opam exec -- dune exec watsup
+
+# Run with CLI args
+opam exec -- dune exec watsup -- -d -1          # yesterday
+opam exec -- dune exec watsup -- -f 2026-02-03 -t 2026-02-07  # range
 ```
 
 **Important:** Always use `opam exec -- dune` for all dune commands. The local opam switch won't be in PATH otherwise.
@@ -53,12 +57,12 @@ Use explicit patterns instead of wildcards where possible:
 ```ocaml
 (* Good - compiler-checked exhaustiveness *)
 List.iter posts ~f:(function
-  | Processor.Post { ticket; duration; source } -> handle_post ticket duration source
+  | Processor.Post { ticket; duration; source; _ } -> handle_post ticket duration source
   | Processor.Skip _ -> ())
 
 (* Avoid - hides potential bugs *)
 List.iter posts ~f:(function
-  | Processor.Post { ticket; duration; source } -> handle_post ticket duration source
+  | Processor.Post { ticket; duration; source; _ } -> handle_post ticket duration source
   | _ -> ())
 ```
 
@@ -120,9 +124,9 @@ let%expect_test "process_entry with cached ticket" =
   let decisions, mapping = process_entry
     ~entry
     ~cached:(Some (Config.Ticket "PROJ-123"))
-    ~prompt:(fun _ -> failwith "should not prompt") in
+    ~prompt:(fun _ -> failwith "should not prompt") () in
   print_s [%sexp (decisions : decision list)];
-  [%expect {| ((Post ((ticket PROJ-123) (duration 5400) (source myproj)))) |}]
+  [%expect {| ((Post (ticket PROJ-123) (duration 5400) (source myproj) (description ""))) |}]
 ```
 
 ### E2E Tests (TDD in the Large)
@@ -136,10 +140,10 @@ let%expect_test "posts worklogs with mocked HTTP" =
     Config.save ~path:config_path config |> Or_error.ok_exn;
 
     let io, get_output = make_io
-      ~inputs:["test work"; ""]  (* description, Enter to confirm *)
+      ~inputs:["PROJ-123"; "test work"; ""]  (* ticket, description, Enter to confirm *)
       ~http_post_responses:[{ Io.status = 200; body = "{}" }]
       ~watson_output:watson () in
-    Main_logic.run ~io ~config_path;
+    Main_logic.run ~io ~config_path ~dates:["2026-02-03"];
     print_string @@ normalize_output ~config_path (get_output ()));
   [%expect {|
     Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
@@ -161,6 +165,12 @@ Use `scripts/test-cli.sh` for real CLI testing:
 
 # Run with real config - piped inputs (each arg becomes a stdin line)
 ./scripts/test-cli.sh real S S LOG-44 "test description" ""
+
+# Run with CLI args (args after -- are passed to the binary)
+./scripts/test-cli.sh real -- -d -1
+
+# Run with piped inputs + CLI args
+./scripts/test-cli.sh real S S -- -d -1
 
 # Restore credentials after clean (pipes saved tokens directly to CLI)
 ./scripts/test-cli.sh restore
@@ -342,7 +352,7 @@ For testing, use isolated config:
 Watson output varies by version. If parsing fails, capture the raw output:
 
 ```bash
-watson report -dG > watson-output.txt
+watson report -G -f 2026-02-03 -t 2026-02-03 > watson-output.txt
 ```
 
 Then write a test with that exact output.
