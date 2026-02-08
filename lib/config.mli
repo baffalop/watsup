@@ -19,6 +19,7 @@ type t = {
   jira_account_id : string;  (* Cached after first lookup *)
   issue_ids : (string * int) list;  (* ticket key -> numeric ID cache *)
   account_keys : (string * string) list;  (* ticket key -> Tempo account key *)
+  tempo_account_attr_key : string;  (* cached Tempo work attribute key for Account *)
   category : category_cache option;
   mappings : (string * mapping) list;
 }

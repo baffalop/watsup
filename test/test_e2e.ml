@@ -69,6 +69,7 @@ let test_config_with_mappings mappings = {
   jira_token = "test-jira-token";
   jira_base_url = "https://test.atlassian.net";
   jira_account_id = "test-account-id-123";
+  tempo_account_attr_key = "_Account_";
   mappings;
 }
 
@@ -309,15 +310,19 @@ coding - 1h 00m 00s
 
 Total: 1h 00m 00s|} in
 
-    (* Mock Jira issue lookup returning ID + Account field, then successful POST *)
+    (* Mock Jira issue lookup returning ID + Account field, then Tempo account key lookup *)
     let jira_issue_response = {|{
       "id": "67890",
       "names": {"customfield_10201": "Account"},
-      "fields": {"customfield_10201": {"key": "ACCT-2"}}
+      "fields": {"customfield_10201": {"id": 273, "value": "Operations"}}
     }|} in
+    let tempo_account_response = {|{"key": "ACCT-2", "name": "Operations"}|} in
     let io, get_output = make_io
       ~inputs:[""; ""]
-      ~http_get_responses:[{ Io.status = 200; body = jira_issue_response }]
+      ~http_get_responses:[
+        { Io.status = 200; body = jira_issue_response };
+        { Io.status = 200; body = tempo_account_response };
+      ]
       ~http_post_responses:[{ Io.status = 200; body = "{}" }]
       ~watson_output:watson () in
     Main_logic.run ~io ~config_path;

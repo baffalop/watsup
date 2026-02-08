@@ -42,7 +42,7 @@ let fetch_jira_issue_info ~io ~config ~ticket =
       | `Assoc name_list ->
         let account_field_id = List.find_map name_list ~f:(fun (field_id, name) ->
           match name with
-          | `String n when String.equal n "Account" -> Some field_id
+          | `String n when String.is_substring (String.lowercase n) ~substring:"account" -> Some field_id
           | _ -> None
         ) in
         (match account_field_id with
@@ -50,11 +50,10 @@ let fetch_jira_issue_info ~io ~config ~ticket =
            let field_value = Yojson.Safe.Util.member field_id fields in
            (match field_value with
             | `Null -> None
-            | `String key -> Some key
-            | `Int id -> Some (Int.to_string id)
             | `Assoc _ ->
-              (match Yojson.Safe.Util.member "key" field_value with
-               | `String key -> Some key
+              (* Jira stores Tempo account as {"id": <int>, "value": <name>} *)
+              (match Yojson.Safe.Util.member "id" field_value with
+               | `Int id -> Some (Int.to_string id)
                | _ -> None)
             | _ -> None)
          | None -> None)
@@ -63,6 +62,44 @@ let fetch_jira_issue_info ~io ~config ~ticket =
     Ok (issue_id, account_key)
   else
     Error (sprintf "Jira API error (%d): %s" response.status response.body)
+
+(* Discover the Account work attribute key from Tempo *)
+let fetch_account_attribute_key ~io ~token =
+  let url = "https://api.tempo.io/4/work-attributes" in
+  let headers = [
+    ("Authorization", sprintf "Bearer %s" token);
+    ("Accept", "application/json");
+  ] in
+  let response = Lwt_main.run @@ io.Io.http_get ~url ~headers in
+  if response.status >= 200 && response.status < 300 then
+    let json = Yojson.Safe.from_string response.body in
+    match Yojson.Safe.Util.(json |> member "results") with
+    | `List attrs ->
+      List.find_map attrs ~f:(fun attr ->
+        let name = Yojson.Safe.Util.(attr |> member "name" |> to_string) in
+        let key = Yojson.Safe.Util.(attr |> member "key" |> to_string) in
+        if String.is_substring (String.lowercase name) ~substring:"account"
+        then Some key else None
+      ) |> Result.of_option ~error:"No Account work attribute found"
+    | _ -> Error "Unexpected work-attributes response format"
+  else
+    Error (sprintf "Tempo work-attributes error (%d): %s" response.status response.body)
+
+(* Look up Tempo account key by numeric ID *)
+let fetch_tempo_account_key ~io ~token ~account_id =
+  let url = sprintf "https://api.tempo.io/4/accounts/%s" account_id in
+  let headers = [
+    ("Authorization", sprintf "Bearer %s" token);
+    ("Accept", "application/json");
+  ] in
+  let response = Lwt_main.run @@ io.Io.http_get ~url ~headers in
+  if response.status >= 200 && response.status < 300 then
+    let json = Yojson.Safe.from_string response.body in
+    match Yojson.Safe.Util.member "key" json with
+    | `String key -> Ok key
+    | _ -> Error "key not found in Tempo account response"
+  else
+    Error (sprintf "Tempo account lookup error (%d): %s" response.status response.body)
 
 let prompt_for_entry ~io entry =
   io.Io.output @@ sprintf "\n%s - %s\n"
@@ -102,7 +139,7 @@ let%expect_test "parse_date_from_range" =
   test "Mon 15 January 2026 -> Fri 19 January 2026";
   [%expect {| 2026-01-15 |}]
 
-let build_worklog_json ~issue_id ~author_account_id ~duration_seconds ~date ~description ~account_key =
+let build_worklog_json ~issue_id ~author_account_id ~duration_seconds ~date ~description ~account =
   let open Yojson.Safe in
   let base = [
     ("issueId", `Int issue_id);
@@ -112,23 +149,23 @@ let build_worklog_json ~issue_id ~author_account_id ~duration_seconds ~date ~des
     ("startTime", `String "09:00:00");
     ("description", `String description);
   ] in
-  let fields = match account_key with
-    | Some key ->
+  let fields = match account with
+    | Some (attr_key, account_key) ->
       base @ [("attributes", `List [
-        `Assoc [("key", `String "_Account_"); ("value", `String key)]
+        `Assoc [("key", `String attr_key); ("value", `String account_key)]
       ])]
     | None -> base
   in
   to_string (`Assoc fields)
 
-let post_worklog ~io ~token ~issue_id ~author_account_id ~duration ~date ~description ~account_key =
+let post_worklog ~io ~token ~issue_id ~author_account_id ~duration ~date ~description ~account =
   let url = "https://api.tempo.io/4/worklogs" in
   let headers = [
     ("Authorization", sprintf "Bearer %s" token);
     ("Content-Type", "application/json");
   ] in
   let duration_seconds = Duration.to_seconds duration in
-  let body = build_worklog_json ~issue_id ~author_account_id ~duration_seconds ~date ~description ~account_key in
+  let body = build_worklog_json ~issue_id ~author_account_id ~duration_seconds ~date ~description ~account in
   io.Io.http_post ~url ~headers ~body
 
 let run ~io ~config_path =
@@ -183,6 +220,16 @@ let run ~io ~config_path =
       | Error msg ->
         io.output @@ sprintf "FAILED: %s\n" msg;
         failwith "Could not fetch Jira account ID"
+    end
+    else config
+  in
+
+  (* Discover Tempo Account work attribute key if not cached *)
+  let config =
+    if String.is_empty config.tempo_account_attr_key then begin
+      match fetch_account_attribute_key ~io ~token:config.tempo_token with
+      | Ok key -> { config with tempo_account_attr_key = key }
+      | Error _ -> config  (* proceed without; POST will fail if Account is required *)
     end
     else config
   in
@@ -249,31 +296,44 @@ let run ~io ~config_path =
         List.fold posts ~init:([], config) ~f:(fun (acc, cfg) decision ->
           match decision with
           | Processor.Post { ticket; duration; source = _ } ->
-            (* Look up or fetch issue ID + account key from Jira *)
+            (* Look up or fetch issue ID + account key *)
             let issue_id, account_key, cfg =
               match Config.get_issue_id cfg ticket, Config.get_account_key cfg ticket with
               | Some id, Some key -> (id, Some key, cfg)
               | _ ->
                 io.output @@ sprintf "  Looking up %s... " ticket;
                 match fetch_jira_issue_info ~io ~config:cfg ~ticket with
-                | Ok (id, acct) ->
-                  (match acct with
-                   | Some key -> io.output @@ sprintf "OK (id=%d, account=%s)\n" id key
-                   | None -> io.output @@ sprintf "OK (id=%d)\n" id);
+                | Ok (id, account_id) ->
                   let cfg = Config.set_issue_id cfg ticket id in
-                  let cfg = match acct with
-                    | Some key -> Config.set_account_key cfg ticket key
-                    | None -> cfg
+                  (* Resolve account ID to Tempo account key *)
+                  let account_key, cfg = match account_id with
+                    | Some acct_id ->
+                      (match fetch_tempo_account_key ~io ~token:cfg.tempo_token ~account_id:acct_id with
+                       | Ok key ->
+                         io.output @@ sprintf "OK (id=%d, account=%s)\n" id key;
+                         (Some key, Config.set_account_key cfg ticket key)
+                       | Error msg ->
+                         io.output @@ sprintf "OK (id=%d)\n" id;
+                         io.output @@ sprintf "  Warning: could not resolve account %s: %s\n" acct_id msg;
+                         (None, cfg))
+                    | None ->
+                      io.output @@ sprintf "OK (id=%d)\n" id;
+                      (None, cfg)
                   in
-                  (id, acct, cfg)
+                  (id, account_key, cfg)
                 | Error msg ->
                   io.output @@ sprintf "FAILED: %s\n" msg;
                   failwith @@ sprintf "Could not fetch issue info for %s" ticket
             in
+            let account = match account_key with
+              | Some key when not (String.is_empty cfg.tempo_account_attr_key) ->
+                Some (cfg.tempo_account_attr_key, key)
+              | _ -> None
+            in
             let response = Lwt_main.run @@
               post_worklog ~io ~token:cfg.tempo_token
                 ~issue_id ~author_account_id:cfg.jira_account_id
-                ~duration ~date ~description ~account_key in
+                ~duration ~date ~description ~account in
             let success = response.Io.status >= 200 && response.status < 300 in
             if success then
               io.output @@ sprintf "%s: OK\n" ticket

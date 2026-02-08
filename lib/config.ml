@@ -21,6 +21,7 @@ type t = {
   jira_account_id : string [@default ""];
   issue_ids : (string * int) list [@default []];
   account_keys : (string * string) list [@default []];  (* ticket key -> Tempo account key *)
+  tempo_account_attr_key : string [@default ""];  (* cached Tempo work attribute key for Account *)
   category : category_cache option [@default None];
   mappings : (string * mapping) list [@default []];
 }
@@ -40,6 +41,7 @@ let empty = {
   jira_account_id = "";
   issue_ids = [];
   account_keys = [];
+  tempo_account_attr_key = "";
   category = None;
   mappings = [];
 }
