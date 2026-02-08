@@ -31,7 +31,11 @@
       "Bash(git status:*)",
       "WebFetch(domain:openapi.tempo.io)",
       "Bash(watson report:*)",
-      "Bash(/Users/nikitagaidakov-mac2/Developer/watsup/scripts/restore.sh:*)"
+      "Bash(/Users/nikitagaidakov-mac2/Developer/watsup/scripts/restore.sh:*)",
+      "WebFetch(domain:dev.realworldocaml.org)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:opam.ocaml.org)",
+      "WebFetch(domain:ocaml.org)"
     ]
   }
 }
