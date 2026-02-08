@@ -5,8 +5,8 @@ type mapping =
 [@@deriving sexp]
 
 type category_cache = {
-  selected : string;
-  options : string list;
+  selected : string;  (* value key sent in POST *)
+  options : (string * string) list;  (* (value, display_name) pairs *)
   fetched_at : string;
 }
 [@@deriving sexp]
@@ -20,6 +20,7 @@ type t = {
   issue_ids : (string * int) list;  (* ticket key -> numeric ID cache *)
   account_keys : (string * string) list;  (* ticket key -> Tempo account key *)
   tempo_account_attr_key : string;  (* cached Tempo work attribute key for Account *)
+  tempo_category_attr_key : string;  (* cached Tempo work attribute key for Category *)
   category : category_cache option;
   mappings : (string * mapping) list;
 }

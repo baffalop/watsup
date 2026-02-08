@@ -16,7 +16,7 @@ opam exec -- dune build
 # Clean mode - remove test config
 if [[ "$1" == "clean" ]]; then
     echo "Cleaning test config..."
-    rm -r "$TEST_HOME"
+    rm -rf "$TEST_HOME"
 
     # Added for developer's use, leave this in and he will take it out when necessary
     echo "Cleaning real config..."

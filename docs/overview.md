@@ -60,7 +60,7 @@ Each feature is built as a testable increment:
 | Module | Responsibility |
 |--------|----------------|
 | `Io` | Dependency injection for all external IO (stdin, stdout, HTTP, shell) |
-| `Config` | Configuration persistence (tokens, mappings, cached issue IDs) |
+| `Config` | Configuration persistence (tokens, mappings, cached issue IDs, work attributes) |
 | `Watson` | Parse Watson CLI output into structured entries |
 | `Duration` | Time duration parsing and formatting |
 | `Processor` | Pure entry processing logic (ticket assignment, skip decisions) |
@@ -71,12 +71,13 @@ Each feature is built as a testable increment:
 
 ```
 Watson CLI → Parse → Process Entries → Prompt User → Resolve IDs → POST to Tempo
-    │                     │                              │
-    │                     ▼                              ▼
-    │              Use cached mappings           Use cached issue IDs
-    │              or prompt for new             or fetch from Jira
-    │                     │                              │
-    │                     ▼                              ▼
+    │                     │                              │              │
+    │                     ▼                              ▼              ▼
+    │              Use cached mappings           Use cached issue    Include work
+    │              or prompt for new             IDs + account keys  attributes
+    │                     │                     or fetch from        (Account +
+    │                     │                     Jira + Tempo         Category)
+    │                     ▼                              │
     └──────────────► Save to Config ◄────────────────────┘
 ```
 
@@ -86,10 +87,18 @@ Config is stored at `~/.config/watsup/config.sexp`:
 
 ```sexp
 ((tempo_token "...")
+ (jira_email "user@company.com")
  (jira_token "...")
  (jira_base_url "https://company.atlassian.net")
  (jira_account_id "...")
  (issue_ids ((PROJ-123 12345) (PROJ-456 67890)))
+ (account_keys ((PROJ-123 ACCT-1)))
+ (tempo_account_attr_key _Account_)
+ (tempo_category_attr_key _Category_)
+ (category
+  ((selected dev-uuid-here)
+   (options ((dev-uuid-here Development) (mtg-uuid Meeting)))
+   (fetched_at 2026-02-07)))
  (mappings
    ((breaks Skip)
     (coding (Ticket PROJ-123))
@@ -118,7 +127,7 @@ Jira Cloud requires proper OAuth 2.0 flow for granular scopes:
 - [ ] `--dry-run` flag to preview without posting
 - [ ] Date range selection (not just today)
 - [ ] Edit/delete previously posted worklogs
-- [ ] Tempo work attributes (category, account)
+- [x] Tempo work attributes (category, account)
 - [ ] Multiple Jira instance support
 - [ ] Config validation and migration tooling
 

@@ -7,8 +7,8 @@ type mapping =
 [@@deriving sexp]
 
 type category_cache = {
-  selected : string;
-  options : string list;
+  selected : string;  (* value key sent in POST *)
+  options : (string * string) list;  (* (value, display_name) pairs *)
   fetched_at : string;
 }
 [@@deriving sexp]
@@ -22,6 +22,7 @@ type t = {
   issue_ids : (string * int) list [@default []];
   account_keys : (string * string) list [@default []];  (* ticket key -> Tempo account key *)
   tempo_account_attr_key : string [@default ""];  (* cached Tempo work attribute key for Account *)
+  tempo_category_attr_key : string [@default ""];  (* cached Tempo work attribute key for Category *)
   category : category_cache option [@default None];
   mappings : (string * mapping) list [@default []];
 }
@@ -42,6 +43,7 @@ let empty = {
   issue_ids = [];
   account_keys = [];
   tempo_account_attr_key = "";
+  tempo_category_attr_key = "";
   category = None;
   mappings = [];
 }

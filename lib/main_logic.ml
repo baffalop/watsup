@@ -63,8 +63,8 @@ let fetch_jira_issue_info ~io ~config ~ticket =
   else
     Error (sprintf "Jira API error (%d): %s" response.status response.body)
 
-(* Discover the Account work attribute key from Tempo *)
-let fetch_account_attribute_key ~io ~token =
+(* Discover work attribute keys from Tempo (Account and Category) *)
+let fetch_work_attribute_keys ~io ~token =
   let url = "https://api.tempo.io/4/work-attributes" in
   let headers = [
     ("Authorization", sprintf "Bearer %s" token);
@@ -75,15 +75,50 @@ let fetch_account_attribute_key ~io ~token =
     let json = Yojson.Safe.from_string response.body in
     match Yojson.Safe.Util.(json |> member "results") with
     | `List attrs ->
-      List.find_map attrs ~f:(fun attr ->
-        let name = Yojson.Safe.Util.(attr |> member "name" |> to_string) in
-        let key = Yojson.Safe.Util.(attr |> member "key" |> to_string) in
-        if String.is_substring (String.lowercase name) ~substring:"account"
-        then Some key else None
-      ) |> Result.of_option ~error:"No Account work attribute found"
+      let find_key ~substring =
+        List.find_map attrs ~f:(fun attr ->
+          let name = Yojson.Safe.Util.(attr |> member "name" |> to_string) in
+          let key = Yojson.Safe.Util.(attr |> member "key" |> to_string) in
+          if String.is_substring (String.lowercase name) ~substring
+          then Some key else None)
+      in
+      Ok (find_key ~substring:"account", find_key ~substring:"category")
     | _ -> Error "Unexpected work-attributes response format"
   else
     Error (sprintf "Tempo work-attributes error (%d): %s" response.status response.body)
+
+(* Fetch category options for a STATIC_LIST work attribute.
+   Returns list of (value, display_name) pairs. *)
+let fetch_category_options ~io ~token ~attr_key =
+  let url = sprintf "https://api.tempo.io/4/work-attributes/%s" attr_key in
+  let headers = [
+    ("Authorization", sprintf "Bearer %s" token);
+    ("Accept", "application/json");
+  ] in
+  let response = Lwt_main.run @@ io.Io.http_get ~url ~headers in
+  if response.status >= 200 && response.status < 300 then
+    let json = Yojson.Safe.from_string response.body in
+    let names_map = match Yojson.Safe.Util.(json |> member "names") with
+      | `Assoc pairs ->
+        List.filter_map pairs ~f:(fun (k, v) ->
+          match v with `String s -> Some (k, s) | _ -> None)
+      | _ -> []
+    in
+    let values = match Yojson.Safe.Util.(json |> member "values") with
+      | `List vs ->
+        List.filter_map vs ~f:(fun v ->
+          match v with
+          | `String key ->
+            let name = List.Assoc.find names_map ~equal:String.equal key
+              |> Option.value ~default:key in
+            Some (key, name)
+          | _ -> None)
+      | _ -> []
+    in
+    if List.is_empty values then Error "No category values found"
+    else Ok values
+  else
+    Error (sprintf "Tempo work-attribute lookup error (%d): %s" response.status response.body)
 
 (* Look up Tempo account key by numeric ID *)
 let fetch_tempo_account_key ~io ~token ~account_id =
@@ -139,7 +174,7 @@ let%expect_test "parse_date_from_range" =
   test "Mon 15 January 2026 -> Fri 19 January 2026";
   [%expect {| 2026-01-15 |}]
 
-let build_worklog_json ~issue_id ~author_account_id ~duration_seconds ~date ~description ~account =
+let build_worklog_json ~issue_id ~author_account_id ~duration_seconds ~date ~description ~attributes =
   let open Yojson.Safe in
   let base = [
     ("issueId", `Int issue_id);
@@ -149,23 +184,24 @@ let build_worklog_json ~issue_id ~author_account_id ~duration_seconds ~date ~des
     ("startTime", `String "09:00:00");
     ("description", `String description);
   ] in
-  let fields = match account with
-    | Some (attr_key, account_key) ->
-      base @ [("attributes", `List [
-        `Assoc [("key", `String attr_key); ("value", `String account_key)]
-      ])]
-    | None -> base
+  let fields = match attributes with
+    | [] -> base
+    | attrs ->
+      base @ [("attributes", `List (
+        List.map attrs ~f:(fun (key, value) ->
+          `Assoc [("key", `String key); ("value", `String value)])
+      ))]
   in
   to_string (`Assoc fields)
 
-let post_worklog ~io ~token ~issue_id ~author_account_id ~duration ~date ~description ~account =
+let post_worklog ~io ~token ~issue_id ~author_account_id ~duration ~date ~description ~attributes =
   let url = "https://api.tempo.io/4/worklogs" in
   let headers = [
     ("Authorization", sprintf "Bearer %s" token);
     ("Content-Type", "application/json");
   ] in
   let duration_seconds = Duration.to_seconds duration in
-  let body = build_worklog_json ~issue_id ~author_account_id ~duration_seconds ~date ~description ~account in
+  let body = build_worklog_json ~issue_id ~author_account_id ~duration_seconds ~date ~description ~attributes in
   io.Io.http_post ~url ~headers ~body
 
 let run ~io ~config_path =
@@ -224,14 +260,77 @@ let run ~io ~config_path =
     else config
   in
 
-  (* Discover Tempo Account work attribute key if not cached *)
+  (* Save config after credential collection (before category prompt, so restore works) *)
+  Config.save ~path:config_path config |> Or_error.ok_exn;
+
+  (* Discover Tempo work attribute keys if not cached *)
   let config =
-    if String.is_empty config.tempo_account_attr_key then begin
-      match fetch_account_attribute_key ~io ~token:config.tempo_token with
-      | Ok key -> { config with tempo_account_attr_key = key }
-      | Error _ -> config  (* proceed without; POST will fail if Account is required *)
+    if String.is_empty config.tempo_account_attr_key
+       || String.is_empty config.tempo_category_attr_key then begin
+      match fetch_work_attribute_keys ~io ~token:config.tempo_token with
+      | Ok (account_key, category_key) ->
+        let cfg = match account_key with
+          | Some k when String.is_empty config.tempo_account_attr_key ->
+            { config with tempo_account_attr_key = k }
+          | _ -> config
+        in
+        (match category_key with
+         | Some k when String.is_empty cfg.tempo_category_attr_key ->
+           { cfg with tempo_category_attr_key = k }
+         | _ -> cfg)
+      | Error _ -> config
     end
     else config
+  in
+
+  (* Fetch and prompt for category if not cached *)
+  let config =
+    let display_name_of cached value =
+      List.Assoc.find cached.Config.options ~equal:String.equal value
+      |> Option.value ~default:value
+    in
+    match config.category with
+    | Some cached ->
+      io.Io.output @@ sprintf "Category: %s\n" (display_name_of cached cached.selected);
+      io.output "  [Enter] keep | [c] change: ";
+      let input = io.input () in
+      if String.equal input "c" then begin
+        io.output "\nSelect activity category:\n";
+        List.iteri cached.options ~f:(fun i (value, name) ->
+          let marker = if String.equal value cached.selected then " *" else "" in
+          io.output @@ sprintf "  %d. %s%s\n" (i + 1) name marker);
+        io.output "> ";
+        let choice = io.input () in
+        match Int.of_string_opt choice with
+        | Some n when n > 0 && n <= List.length cached.options ->
+          let selected = fst (List.nth_exn cached.options (n - 1)) in
+          { config with category = Some { cached with selected } }
+        | _ -> config
+      end
+      else config
+    | None when not (String.is_empty config.tempo_category_attr_key) ->
+      (match fetch_category_options ~io ~token:config.tempo_token
+               ~attr_key:config.tempo_category_attr_key with
+       | Ok options ->
+         io.Io.output "\nSelect activity category:\n";
+         List.iteri options ~f:(fun i (_value, name) ->
+           io.output @@ sprintf "  %d. %s\n" (i + 1) name);
+         io.output "> ";
+         let choice = io.input () in
+         let selected = match Int.of_string_opt choice with
+           | Some n when n > 0 && n <= List.length options ->
+             fst (List.nth_exn options (n - 1))
+           | _ -> fst (List.hd_exn options)
+         in
+         { config with category = Some {
+             Config.selected;
+             options;
+             fetched_at = Date.to_string (Date.today ~zone:Time_float.Zone.utc);
+           }}
+       | Error msg ->
+         io.Io.output @@ sprintf "Warning: could not fetch categories: %s\n" msg;
+         config)
+    | None -> config
   in
 
   (* Save config after credential collection *)
@@ -325,15 +424,20 @@ let run ~io ~config_path =
                   io.output @@ sprintf "FAILED: %s\n" msg;
                   failwith @@ sprintf "Could not fetch issue info for %s" ticket
             in
-            let account = match account_key with
-              | Some key when not (String.is_empty cfg.tempo_account_attr_key) ->
-                Some (cfg.tempo_account_attr_key, key)
-              | _ -> None
+            let attributes =
+              (match account_key with
+               | Some key when not (String.is_empty cfg.tempo_account_attr_key) ->
+                 [(cfg.tempo_account_attr_key, key)]
+               | _ -> [])
+              @ (match cfg.category with
+                 | Some cat when not (String.is_empty cfg.tempo_category_attr_key) ->
+                   [(cfg.tempo_category_attr_key, cat.selected)]
+                 | _ -> [])
             in
             let response = Lwt_main.run @@
               post_worklog ~io ~token:cfg.tempo_token
                 ~issue_id ~author_account_id:cfg.jira_account_id
-                ~duration ~date ~description ~account in
+                ~duration ~date ~description ~attributes in
             let success = response.Io.status >= 200 && response.status < 300 in
             if success then
               io.output @@ sprintf "%s: OK\n" ticket

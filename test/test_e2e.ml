@@ -70,6 +70,8 @@ let test_config_with_mappings mappings = {
   jira_base_url = "https://test.atlassian.net";
   jira_account_id = "test-account-id-123";
   tempo_account_attr_key = "_Account_";
+  tempo_category_attr_key = "_Category_";
+  category = Some { Config.selected = "dev-uuid"; options = [("dev-uuid", "Development"); ("mtg-uuid", "Meeting"); ("sup-uuid", "Support")]; fetched_at = "2026-02-07" };
   mappings;
 }
 
@@ -79,14 +81,15 @@ let%expect_test "interactive flow prompts for unmapped entries" =
     let config = test_config_with_mappings [] in
     Config.save ~path:config_path config |> Or_error.ok_exn;
 
-    (* Inputs: ARCH-1 for architecture, S for breaks, n for cr, description, q to quit *)
+    (* Inputs: Enter to keep category, ARCH-1 for architecture, S for breaks, n for cr, description, q to quit *)
     let io, get_output = make_io
-      ~inputs:["ARCH-1"; "S"; "n"; ""; "q"]
+      ~inputs:[""; "ARCH-1"; "S"; "n"; ""; "q"]
       ~watson_output:sample_watson_report () in
     Main_logic.run ~io ~config_path;
     print_string (normalize_output ~config_path (get_output ())));
   [%expect {|
-    Report: Tue 03 February 2026 -> Tue 03 February 2026 (3 entries)
+    Category: Development
+      [Enter] keep | [c] change: Report: Tue 03 February 2026 -> Tue 03 February 2026 (3 entries)
 
     architecture - 25m
       [ticket] assign | [n] skip | [S] skip always:
@@ -101,7 +104,8 @@ let%expect_test "interactive flow prompts for unmapped entries" =
     === Worklogs to Post ===
       ARCH-1: 25m
 
-    Description (optional): [Enter] post | [q] quit: |}]
+    Description (optional): [Enter] post | [q] quit:
+    |}]
 
 let%expect_test "uses cached mappings with auto_extract" =
   with_temp_config (fun ~config_path ~temp_dir:_ ->
@@ -116,12 +120,13 @@ let%expect_test "uses cached mappings with auto_extract" =
     } in
     Config.save ~path:config_path config |> Or_error.ok_exn;
 
-    (* Inputs: description, q to quit *)
-    let io, get_output = make_io ~inputs:[""; "q"] ~watson_output:sample_watson_report () in
+    (* Inputs: Enter to keep category, description, q to quit *)
+    let io, get_output = make_io ~inputs:[""; ""; "q"] ~watson_output:sample_watson_report () in
     Main_logic.run ~io ~config_path;
     print_string (normalize_output ~config_path (get_output ())));
   [%expect {|
-    Report: Tue 03 February 2026 -> Tue 03 February 2026 (3 entries)
+    Category: Development
+      [Enter] keep | [c] change: Report: Tue 03 February 2026 -> Tue 03 February 2026 (3 entries)
 
     === Summary ===
     POST: ARCH-1 (25m) from architecture
@@ -134,7 +139,8 @@ let%expect_test "uses cached mappings with auto_extract" =
       FK-3080: 35m
       FK-3083: 10m
 
-    Description (optional): [Enter] post | [q] quit: |}]
+    Description (optional): [Enter] post | [q] quit:
+    |}]
 
 let%expect_test "handles empty watson report" =
   with_temp_config (fun ~config_path ~temp_dir:_ ->
@@ -142,11 +148,12 @@ let%expect_test "handles empty watson report" =
     let config = test_config_with_mappings [] in
     Config.save ~path:config_path config |> Or_error.ok_exn;
 
-    let io, get_output = make_io ~inputs:[] ~watson_output:empty_watson_report () in
+    let io, get_output = make_io ~inputs:[""] ~watson_output:empty_watson_report () in
     Main_logic.run ~io ~config_path;
     print_string (normalize_output ~config_path (get_output ())));
   [%expect {|
-    Report: Mon 03 February 2026 -> Mon 03 February 2026 (0 entries)
+    Category: Development
+      [Enter] keep | [c] change: Report: Mon 03 February 2026 -> Mon 03 February 2026 (0 entries)
 
     === Summary ===
     |}]
@@ -164,14 +171,15 @@ breaks - 30m 00s
 
 Total: 2h 30m 00s|} in
 
-    (* Inputs: PROJ-123 for coding, S for breaks, description, q to quit *)
+    (* Inputs: Enter to keep category, PROJ-123 for coding, S for breaks, description, q to quit *)
     let io, get_output = make_io
-      ~inputs:["PROJ-123"; "S"; ""; "q"]
+      ~inputs:[""; "PROJ-123"; "S"; ""; "q"]
       ~watson_output:watson () in
     Main_logic.run ~io ~config_path;
     print_string @@ normalize_output ~config_path (get_output ()));
   [%expect {|
-    Report: Mon 03 February 2026 -> Mon 03 February 2026 (2 entries)
+    Category: Development
+      [Enter] keep | [c] change: Report: Mon 03 February 2026 -> Mon 03 February 2026 (2 entries)
 
     coding - 2h
       [ticket] assign | [n] skip | [S] skip always:
@@ -184,7 +192,8 @@ Total: 2h 30m 00s|} in
     === Worklogs to Post ===
       PROJ-123: 2h
 
-    Description (optional): [Enter] post | [q] quit: |}]
+    Description (optional): [Enter] post | [q] quit:
+    |}]
 
 let%expect_test "skips prompts for cached mappings" =
   with_temp_config (fun ~config_path ~temp_dir:_ ->
@@ -202,14 +211,15 @@ breaks - 45m 00s
 
 Total: 2h 15m 00s|} in
 
-    (* Inputs: description, q to quit - no entry prompts needed *)
+    (* Inputs: Enter to keep category, description, q to quit - no entry prompts needed *)
     let io, get_output = make_io
-      ~inputs:[""; "q"]
+      ~inputs:[""; ""; "q"]
       ~watson_output:watson () in
     Main_logic.run ~io ~config_path;
     print_string @@ normalize_output ~config_path (get_output ()));
   [%expect {|
-    Report: Mon 03 February 2026 -> Mon 03 February 2026 (2 entries)
+    Category: Development
+      [Enter] keep | [c] change: Report: Mon 03 February 2026 -> Mon 03 February 2026 (2 entries)
 
     === Summary ===
     POST: PROJ-123 (1h 30m) from coding
@@ -218,7 +228,8 @@ Total: 2h 15m 00s|} in
     === Worklogs to Post ===
       PROJ-123: 1h 30m
 
-    Description (optional): [Enter] post | [q] quit: |}]
+    Description (optional): [Enter] post | [q] quit:
+    |}]
 
 let%expect_test "posts worklogs with mocked HTTP" =
   with_temp_config (fun ~config_path ~temp_dir:_ ->
@@ -236,15 +247,16 @@ coding - 1h 00m 00s
 
 Total: 1h 00m 00s|} in
 
-    (* Inputs: description "test work", Enter to confirm (not "q") *)
+    (* Inputs: Enter to keep category, description "test work", Enter to confirm (not "q") *)
     let io, get_output = make_io
-      ~inputs:["test work"; ""]
+      ~inputs:[""; "test work"; ""]
       ~http_post_responses:[{ Io.status = 200; body = "{\"id\": 999}" }]
       ~watson_output:watson () in
     Main_logic.run ~io ~config_path;
     print_string @@ normalize_output ~config_path (get_output ()));
   [%expect {|
-    Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
+    Category: Development
+      [Enter] keep | [c] change: Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
 
     === Summary ===
     POST: PROJ-123 (1h) from coding
@@ -274,15 +286,16 @@ coding - 1h 00m 00s
 
 Total: 1h 00m 00s|} in
 
-    (* Mock a 400 error response *)
+    (* Mock a 400 error response. Inputs: Enter to keep category, description, Enter to confirm *)
     let io, get_output = make_io
-      ~inputs:[""; ""]
+      ~inputs:[""; ""; ""]
       ~http_post_responses:[{ Io.status = 400; body = "{\"error\": \"Invalid issue\"}" }]
       ~watson_output:watson () in
     Main_logic.run ~io ~config_path;
     print_string @@ normalize_output ~config_path (get_output ()));
   [%expect {|
-    Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
+    Category: Development
+      [Enter] keep | [c] change: Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
 
     === Summary ===
     POST: PROJ-123 (1h) from coding
@@ -317,8 +330,9 @@ Total: 1h 00m 00s|} in
       "fields": {"customfield_10201": {"id": 273, "value": "Operations"}}
     }|} in
     let tempo_account_response = {|{"key": "ACCT-2", "name": "Operations"}|} in
+    (* Inputs: Enter to keep category, description, Enter to confirm *)
     let io, get_output = make_io
-      ~inputs:[""; ""]
+      ~inputs:[""; ""; ""]
       ~http_get_responses:[
         { Io.status = 200; body = jira_issue_response };
         { Io.status = 200; body = tempo_account_response };
@@ -328,7 +342,8 @@ Total: 1h 00m 00s|} in
     Main_logic.run ~io ~config_path;
     print_string @@ normalize_output ~config_path (get_output ()));
   [%expect {|
-    Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
+    Category: Development
+      [Enter] keep | [c] change: Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
 
     === Summary ===
     POST: PROJ-123 (1h) from coding
@@ -342,4 +357,91 @@ Total: 1h 00m 00s|} in
     PROJ-123: OK
 
     Posted 1/1 worklogs
+    |}]
+
+let%expect_test "prompts for category when not cached" =
+  with_temp_config (fun ~config_path ~temp_dir:_ ->
+    (* Config without cached category *)
+    let config = {
+      (test_config_with_mappings [("coding", Config.Ticket "PROJ-123")]) with
+      category = None;
+      issue_ids = [("PROJ-123", 12345)];
+      account_keys = [("PROJ-123", "ACCT-1")];
+    } in
+    Config.save ~path:config_path config |> Or_error.ok_exn;
+
+    let watson = {|Mon 03 February 2026 -> Mon 03 February 2026
+
+coding - 1h 00m 00s
+
+Total: 1h 00m 00s|} in
+
+    (* Mock work-attribute detail response with category values + names *)
+    let category_attr_response = {|{
+      "key": "_Category_",
+      "name": "Activity Category",
+      "type": "STATIC_LIST",
+      "values": ["dev-uuid", "mtg-uuid", "sup-uuid"],
+      "names": {"dev-uuid": "Development", "mtg-uuid": "Meeting", "sup-uuid": "Support"}
+    }|} in
+    (* Inputs: "2" to select Meeting, description, q to quit *)
+    let io, get_output = make_io
+      ~inputs:["2"; ""; "q"]
+      ~http_get_responses:[{ Io.status = 200; body = category_attr_response }]
+      ~watson_output:watson () in
+    Main_logic.run ~io ~config_path;
+    print_string @@ normalize_output ~config_path (get_output ()));
+  [%expect {|
+    Select activity category:
+      1. Development
+      2. Meeting
+      3. Support
+    > Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
+
+    === Summary ===
+    POST: PROJ-123 (1h) from coding
+
+    === Worklogs to Post ===
+      PROJ-123: 1h
+
+    Description (optional): [Enter] post | [q] quit:
+    |}]
+
+let%expect_test "allows overriding cached category" =
+  with_temp_config (fun ~config_path ~temp_dir:_ ->
+    let config = {
+      (test_config_with_mappings [("coding", Config.Ticket "PROJ-123")]) with
+      issue_ids = [("PROJ-123", 12345)];
+      account_keys = [("PROJ-123", "ACCT-1")];
+    } in
+    Config.save ~path:config_path config |> Or_error.ok_exn;
+
+    let watson = {|Mon 03 February 2026 -> Mon 03 February 2026
+
+coding - 1h 00m 00s
+
+Total: 1h 00m 00s|} in
+
+    (* Inputs: "c" to change category, "3" for Support, description, q to quit *)
+    let io, get_output = make_io
+      ~inputs:["c"; "3"; ""; "q"]
+      ~watson_output:watson () in
+    Main_logic.run ~io ~config_path;
+    print_string @@ normalize_output ~config_path (get_output ()));
+  [%expect {|
+    Category: Development
+      [Enter] keep | [c] change:
+    Select activity category:
+      1. Development *
+      2. Meeting
+      3. Support
+    > Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
+
+    === Summary ===
+    POST: PROJ-123 (1h) from coding
+
+    === Worklogs to Post ===
+      PROJ-123: 1h
+
+    Description (optional): [Enter] post | [q] quit:
     |}]
