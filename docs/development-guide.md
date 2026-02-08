@@ -179,12 +179,14 @@ Changes that affect API interaction (auth, endpoints, request bodies) must be ve
 Typical workflow:
 
 ```bash
-./scripts/test-cli.sh clean           # wipe config
+./scripts/test-cli.sh clean           # wipe config (only if needed)
 ./scripts/test-cli.sh restore         # re-inject credentials
 ./scripts/test-cli.sh real S S LOG-44 test ""  # test with piped inputs
 ```
 
-The `restore` command reads token files stored outside the repo (two directories up: `.watsup-ttk`, `.watsup-jtk`) and pipes them directly to the CLI credential prompts. No intermediate files are created.
+**`clean`** is only needed when the config schema has changed or you're testing the caching itself. It wipes both real and test configs.
+
+**`restore`** recreates the config by piping saved tokens through the CLI credential prompts. It reads token files stored outside the repo (two directories up: `.watsup-ttk`, `.watsup-jtk`). Only needed after `clean`. No intermediate files are created.
 
 ## Expect Test Workflow
 

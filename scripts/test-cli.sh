@@ -24,7 +24,8 @@ if [[ "$1" == "clean" ]]; then
     exit 0
 fi
 
-# Restore mode - pipe saved tokens directly to the CLI to recreate config
+# Restore mode - recreate config by piping saved tokens through credential prompts
+# Only needed after 'clean' (e.g., config schema change or testing caching)
 # Token files are stored outside the repo (two dirs up)
 if [[ "$1" == "restore" ]]; then
     TOKEN_DIR="$(dirname "$(dirname "$PROJECT_DIR")")"
@@ -35,7 +36,15 @@ if [[ "$1" == "restore" ]]; then
         exit 1
     fi
     echo "=== Restoring credentials ==="
-    cat "$TTK" <(printf '\npodfather\nngaidakov@podfather.com\n') "$JTK" | ./_build/default/bin/main.exe
+    # Config is saved after credentials, before Watson parsing.
+    # CLI will crash with EOF when entry prompts exhaust stdin — that's expected.
+    cat "$TTK" <(printf '\npodfather\nngaidakov@podfather.com\n') "$JTK" | ./_build/default/bin/main.exe >/dev/null 2>&1 || true
+    if [[ -f "$HOME/.config/watsup/config.sexp" ]]; then
+        echo "Config restored."
+    else
+        echo "FAILED: config not created."
+        exit 1
+    fi
     exit 0
 fi
 
