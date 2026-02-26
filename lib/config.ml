@@ -22,7 +22,7 @@ type t = {
   account_keys : (string * string) list [@default []];  (* ticket key -> Tempo account key *)
   tempo_account_attr_key : string [@default ""];  (* cached Tempo work attribute key for Account *)
   tempo_category_attr_key : string [@default ""];  (* cached Tempo work attribute key for Category *)
-  category : category_cache option [@default None];
+  categories : category_cache option [@default None];
   mappings : (string * mapping) list [@default []];
 }
 [@@deriving sexp]
@@ -43,7 +43,7 @@ let empty = {
   account_keys = [];
   tempo_account_attr_key = "";
   tempo_category_attr_key = "";
-  category = None;
+  categories = None;
   mappings = [];
 }
 

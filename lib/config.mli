@@ -20,7 +20,7 @@ type t = {
   account_keys : (string * string) list;  (* ticket key -> Tempo account key *)
   tempo_account_attr_key : string;  (* cached Tempo work attribute key for Account *)
   tempo_category_attr_key : string;  (* cached Tempo work attribute key for Category *)
-  category : category_cache option;
+  categories : category_cache option;
   mappings : (string * mapping) list;
 }
 [@@deriving sexp]

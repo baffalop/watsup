@@ -324,15 +324,10 @@ let run_day ~io ~config_path:_ ~config ~date =
                   io.output @@ sprintf "FAILED: %s\n" msg;
                   failwith @@ sprintf "Could not fetch issue info for %s" ticket
             in
-            let attributes =
-              (match account_key with
+            let attributes = match account_key with
                | Some key when not (String.is_empty cfg.tempo_account_attr_key) ->
                  [(cfg.tempo_account_attr_key, key)]
-               | _ -> [])
-              @ (match cfg.category with
-                 | Some cat when not (String.is_empty cfg.tempo_category_attr_key) ->
-                   [(cfg.tempo_category_attr_key, cat.selected)]
-                 | _ -> [])
+               | _ -> []
             in
             let response = Lwt_main.run @@
               post_worklog ~io ~token:cfg.tempo_token
@@ -437,53 +432,23 @@ let run ~io ~config_path ~dates =
     else config
   in
 
-  (* Fetch and prompt for category if not cached *)
+  (* Fetch categories if not cached *)
   let config =
-    let display_name_of cached value =
-      List.Assoc.find cached.Config.options ~equal:String.equal value
-      |> Option.value ~default:value
-    in
-    match config.category with
-    | Some cached ->
-      io.Io.output @@ sprintf "Category: %s\n" (display_name_of cached cached.selected);
-      io.output "  [Enter] keep | [c] change: ";
-      let input = io.input () in
-      if String.equal input "c" then begin
-        io.output "\nSelect activity category:\n";
-        List.iteri cached.options ~f:(fun i (value, name) ->
-          let marker = if String.equal value cached.selected then " *" else "" in
-          io.output @@ sprintf "  %d. %s%s\n" (i + 1) name marker);
-        io.output "> ";
-        let choice = io.input () in
-        match Int.of_string_opt choice with
-        | Some n when n > 0 && n <= List.length cached.options ->
-          let selected = fst (List.nth_exn cached.options (n - 1)) in
-          { config with category = Some { cached with selected } }
-        | _ -> config
-      end
-      else config
-    | None when not (String.is_empty config.tempo_category_attr_key) ->
-      (match fetch_category_options ~io ~token:config.tempo_token
-               ~attr_key:config.tempo_category_attr_key with
+    match config.categories with
+    | Some _ -> config
+    | None when not @@ String.is_empty config.tempo_category_attr_key -> (
+      match fetch_category_options ~io ~token:config.tempo_token
+          ~attr_key:config.tempo_category_attr_key with
        | Ok options ->
-         io.Io.output "\nSelect activity category:\n";
-         List.iteri options ~f:(fun i (_value, name) ->
-           io.output @@ sprintf "  %d. %s\n" (i + 1) name);
-         io.output "> ";
-         let choice = io.input () in
-         let selected = match Int.of_string_opt choice with
-           | Some n when n > 0 && n <= List.length options ->
-             fst (List.nth_exn options (n - 1))
-           | _ -> fst (List.hd_exn options)
-         in
-         { config with category = Some {
-             Config.selected;
+         { config with categories = Some {
              options;
-             fetched_at = Date.to_string (Date.today ~zone:Time_float.Zone.utc);
-           }}
+             fetched_at = Date.to_string @@ Date.today ~zone:Time_float.Zone.utc;
+           }
+         }
        | Error msg ->
          io.Io.output @@ sprintf "Warning: could not fetch categories: %s\n" msg;
-         config)
+         config
+    )
     | None -> config
   in
 
