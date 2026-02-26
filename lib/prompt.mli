@@ -21,4 +21,4 @@ val prompt_confirm_post :
   bool
 
 val prompt_token : unit -> string
-val prompt_category : Tempo.category list -> current:string option -> string
+val prompt_category : Category.t list -> current:string option -> string

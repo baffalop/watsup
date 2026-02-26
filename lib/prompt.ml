@@ -71,7 +71,7 @@ let prompt_confirm_post worklogs ~skipped ~manual =
   List.iter worklogs ~f:(fun w ->
       printf "%-12s %-15s %8s  %s\n" w.Worklog.ticket w.source
         (Duration.to_string w.duration)
-        w.category);
+        (Category.name w.category));
   let total =
     List.fold worklogs ~init:Duration.zero ~f:(fun acc w ->
         Duration.(acc + w.Worklog.duration))
@@ -98,21 +98,22 @@ let prompt_token () =
   printf "Enter Tempo API token: %!";
   read_line_safe ()
 
-let prompt_category (categories : Tempo.category list) ~current =
+let prompt_category (categories : Category.t list) ~current =
   printf "\nSelect category:\n";
   List.iteri categories ~f:(fun i c ->
-      let marker =
-        match current with
-        | Some cur when String.equal cur c.Tempo.name -> " *"
-        | _ -> ""
-      in
-      printf "  %d. %s%s\n" (i + 1) c.name marker);
+    let category_name = Category.name c in
+    let marker =
+      match current with
+      | Some cur when String.(cur = category_name) -> " *"
+      | _ -> ""
+    in
+    printf "  %d. %s%s\n" (i + 1) category_name marker);
   printf "  [r] refresh from API\n";
   printf "> %!";
   let input = read_line_safe () in
   match Int.of_string_opt input with
   | Some n when n > 0 && n <= List.length categories ->
-    (List.nth_exn categories (n - 1)).name
+    Category.name @@ List.nth_exn categories (n - 1)
   | _ -> (
     match current with
     | Some c -> c

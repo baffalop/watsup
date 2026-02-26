@@ -7,8 +7,7 @@ type mapping =
 [@@deriving sexp]
 
 type category_cache = {
-  selected : string;  (* value key sent in POST *)
-  options : (string * string) list;  (* (value, display_name) pairs *)
+  options : Category.t list;
   fetched_at : string;
 }
 [@@deriving sexp]

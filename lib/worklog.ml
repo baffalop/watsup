@@ -4,7 +4,7 @@ type t = {
   ticket : string;
   duration : Duration.t;
   date : Date.t;
-  category : string;
+  category : Category.t;
   account : string option;
   message : string option;
   source : string;

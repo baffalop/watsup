@@ -89,7 +89,8 @@ let fetch_work_attribute_keys ~io ~token =
 
 (* Fetch category options for a STATIC_LIST work attribute.
    Returns list of (value, display_name) pairs. *)
-let fetch_category_options ~io ~token ~attr_key =
+let fetch_category_options ~io ~token ~attr_key
+  : (Category.t list, string) Result.t =
   let url = sprintf "https://api.tempo.io/4/work-attributes/%s" attr_key in
   let headers = [
     ("Authorization", sprintf "Bearer %s" token);
@@ -115,10 +116,13 @@ let fetch_category_options ~io ~token ~attr_key =
           | _ -> None)
       | _ -> []
     in
-    if List.is_empty values then Error "No category values found"
-    else Ok values
+    if List.is_empty values then Error "No Tempo category values found"
+    else values
+    |> List.map ~f:(fun (value, name) -> Category.make ~value ~name)
+    |> Result.return
   else
-    Error (sprintf "Tempo work-attribute lookup error (%d): %s" response.status response.body)
+    Result.fail @@ sprintf "Tempo work-attribute lookup error (%d): %s"
+      response.status response.body
 
 (* Look up Tempo account key by numeric ID *)
 let fetch_tempo_account_key ~io ~token ~account_id =

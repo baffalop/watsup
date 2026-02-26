@@ -75,7 +75,14 @@ let test_config_with_mappings mappings = {
   jira_account_id = "test-account-id-123";
   tempo_account_attr_key = "_Account_";
   tempo_category_attr_key = "_Category_";
-  category = Some { Config.selected = "dev-uuid"; options = [("dev-uuid", "Development"); ("mtg-uuid", "Meeting"); ("sup-uuid", "Support")]; fetched_at = "2026-02-07" };
+  categories = Some {
+    Config.options = [
+      Category.make ~value:"dev" ~name:"Development";
+      Category.make ~value:"met" ~name:"Meeting";
+      Category.make ~value:"sup" ~name:"Support";
+    ];
+    fetched_at = "2026-02-07"
+  };
   mappings;
 }
 
