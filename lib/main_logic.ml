@@ -232,6 +232,51 @@ let post_worklog ~io ~token ~issue_id ~author_account_id ~duration ~date ~descri
   let body = build_worklog_json ~issue_id ~author_account_id ~duration_seconds ~date ~description ~attributes in
   io.Io.http_post ~url ~headers ~body
 
+let prompt_category_list ~io ~options ~current_value =
+  List.iteri options ~f:(fun i cat ->
+    let marker = match current_value with
+      | Some v when String.equal v (Category.value cat) -> " *"
+      | _ -> ""
+    in
+    io.Io.output @@ sprintf "    %d. %s%s\n" (i + 1) (Category.name cat) marker);
+  io.output "  > ";
+  let input = io.input () in
+  match Int.of_string_opt input with
+  | Some n when n >= 1 && n <= List.length options ->
+    Category.value (List.nth_exn options (n - 1))
+  | _ ->
+    (* Default to first option on invalid input *)
+    Category.value (List.hd_exn options)
+
+let prompt_category ~io ~config ~options ticket =
+  match Config.get_category_selection config ticket with
+  | Some cached_value ->
+    (* Check if cached value still resolves *)
+    (match List.find options ~f:(fun cat -> String.equal (Category.value cat) cached_value) with
+     | Some cat ->
+       io.Io.output @@ sprintf "  %s category: %s\n    [Enter] keep | [c] change: " ticket (Category.name cat);
+       let input = io.input () in
+       if String.equal input "c" then begin
+         let value = prompt_category_list ~io ~options ~current_value:(Some cached_value) in
+         Config.set_category_selection config ticket value
+       end else
+         config
+     | None ->
+       (* Stale value - warn and prompt fresh *)
+       io.Io.output @@ sprintf "  %s category (previous selection no longer available):\n" ticket;
+       let value = prompt_category_list ~io ~options ~current_value:None in
+       Config.set_category_selection config ticket value)
+  | None ->
+    io.Io.output @@ sprintf "  %s category:\n" ticket;
+    let value = prompt_category_list ~io ~options ~current_value:None in
+    Config.set_category_selection config ticket value
+
+let resolve_category_for_display ~config ~options ticket =
+  match Config.get_category_selection config ticket with
+  | Some value ->
+    List.find options ~f:(fun cat -> String.equal (Category.value cat) value)
+  | None -> None
+
 let run_day ~io ~config_path:_ ~config ~date =
   (* Parse watson report *)
   let watson_cmd = sprintf "watson report -G -f %s -t %s" date date in
@@ -253,6 +298,15 @@ let run_day ~io ~config_path:_ ~config ~date =
         () in
       let cfg' = Option.value_map new_mapping ~default:cfg
         ~f:(fun m -> Config.set_mapping cfg entry.project m) in
+      (* Category prompting for each Post decision *)
+      let cfg' = match cfg'.categories with
+        | Some { options; _ } when not (String.is_empty cfg'.tempo_category_attr_key)
+            && not (List.is_empty options) ->
+          List.fold decisions ~init:cfg' ~f:(fun c -> function
+            | Processor.Post { ticket; _ } -> prompt_category ~io ~config:c ~options ticket
+            | Processor.Skip _ -> c)
+        | _ -> cfg'
+      in
       (List.rev_append decisions acc_decisions, cfg'))
   in
   let all_decisions = List.rev all_decisions in
@@ -263,9 +317,13 @@ let run_day ~io ~config_path:_ ~config ~date =
     | Processor.Post _ -> true
     | Processor.Skip _ -> false) in
 
+  let cat_options = match config.categories with
+    | Some { options; _ } -> options | None -> [] in
   List.iter posts ~f:(function
     | Processor.Post { ticket; duration; source; _ } ->
-      io.output @@ sprintf "POST: %s (%s) from %s\n" ticket (Duration.to_string duration) source
+      let cat_str = match resolve_category_for_display ~config ~options:cat_options ticket with
+        | Some cat -> sprintf " [%s]" (Category.name cat) | None -> "" in
+      io.output @@ sprintf "POST: %s (%s)%s from %s\n" ticket (Duration.to_string duration) cat_str source
     | Processor.Skip _ -> ());
 
   List.iter skips ~f:(function
@@ -324,10 +382,17 @@ let run_day ~io ~config_path:_ ~config ~date =
                   io.output @@ sprintf "FAILED: %s\n" msg;
                   failwith @@ sprintf "Could not fetch issue info for %s" ticket
             in
-            let attributes = match account_key with
+            let cat_options = match cfg.categories with
+              | Some { options; _ } -> options | None -> [] in
+            let attributes =
+              (match account_key with
                | Some key when not (String.is_empty cfg.tempo_account_attr_key) ->
                  [(cfg.tempo_account_attr_key, key)]
-               | _ -> []
+               | _ -> [])
+              @ (match resolve_category_for_display ~config:cfg ~options:cat_options ticket with
+                 | Some cat when not (String.is_empty cfg.tempo_category_attr_key) ->
+                   [(cfg.tempo_category_attr_key, Category.value cat)]
+                 | _ -> [])
             in
             let response = Lwt_main.run @@
               post_worklog ~io ~token:cfg.tempo_token

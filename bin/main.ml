@@ -34,9 +34,9 @@ let resolve_dates ~day ~from_date ~to_date =
 let () =
   let open Climate.Arg_parser in
   let arg_parser =
-    let+ day = named_opt ~doc:"Single day: ISO date or -N for relative" ["-d"; "--day"] string
-    and+ from_date = named_opt ~doc:"Range start (ISO date)" ["-f"; "--from"] string
-    and+ to_date = named_opt ~doc:"Range end (ISO date)" ["-t"; "--to"] string
+    let+ day = named_opt ~doc:"Single day: ISO date or -N for relative" ["day"; "d"] string
+    and+ from_date = named_opt ~doc:"Range start (ISO date)" ["from"; "f"] string
+    and+ to_date = named_opt ~doc:"Range end (ISO date)" ["to"; "t"] string
     in
     (day, from_date, to_date)
   in

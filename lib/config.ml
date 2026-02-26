@@ -23,6 +23,7 @@ type t = {
   tempo_account_attr_key : string [@default ""];  (* cached Tempo work attribute key for Account *)
   tempo_category_attr_key : string [@default ""];  (* cached Tempo work attribute key for Category *)
   categories : category_cache option [@default None];
+  category_selections : (string * string) list [@default []];  (* ticket -> category value *)
   mappings : (string * mapping) list [@default []];
 }
 [@@deriving sexp]
@@ -44,6 +45,7 @@ let empty = {
   tempo_account_attr_key = "";
   tempo_category_attr_key = "";
   categories = None;
+  category_selections = [];
   mappings = [];
 }
 
@@ -93,6 +95,15 @@ let set_account_key config ticket account_key =
     List.Assoc.add config.account_keys ~equal:String.equal ticket account_key
   in
   { config with account_keys }
+
+let get_category_selection config ticket =
+  List.Assoc.find config.category_selections ~equal:String.equal ticket
+
+let set_category_selection config ticket value =
+  let category_selections =
+    List.Assoc.add config.category_selections ~equal:String.equal ticket value
+  in
+  { config with category_selections }
 
 let%expect_test "config round trip" =
   let path = Stdlib.Filename.temp_file "watsup_test" ".sexp" in

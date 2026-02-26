@@ -21,6 +21,7 @@ type t = {
   tempo_account_attr_key : string;  (* cached Tempo work attribute key for Account *)
   tempo_category_attr_key : string;  (* cached Tempo work attribute key for Category *)
   categories : category_cache option;
+  category_selections : (string * string) list;  (* ticket -> category value *)
   mappings : (string * mapping) list;
 }
 [@@deriving sexp]
@@ -37,3 +38,5 @@ val get_issue_id : t -> string -> int option
 val set_issue_id : t -> string -> int -> t
 val get_account_key : t -> string -> string option
 val set_account_key : t -> string -> string -> t
+val get_category_selection : t -> string -> string option
+val set_category_selection : t -> string -> string -> t
