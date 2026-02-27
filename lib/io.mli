@@ -21,3 +21,14 @@ val http_post : url:string -> headers:(string * string) list -> body:string -> h
 val http_get : url:string -> headers:(string * string) list -> http_response
 
 val with_stdio : (unit -> 'a) -> 'a
+
+module Mocked : sig
+  type session
+
+  val run : (unit -> unit) -> session
+
+  val input : session -> string -> unit
+  val http_get : session -> http_response -> unit
+  val http_post : session -> http_response -> unit
+  val finish : session -> unit
+end

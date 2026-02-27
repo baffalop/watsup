@@ -45,4 +45,4 @@ let () =
   in
   let dates = resolve_dates ~day ~from_date ~to_date in
   let config_path = Config.default_path () in
-  Main_logic.run ~io:Io.stdio ~config_path ~dates
+  Io.with_stdio (fun () -> Main_logic.run ~config_path ~dates)

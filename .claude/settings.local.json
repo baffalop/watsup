@@ -35,7 +35,8 @@
       "WebFetch(domain:dev.realworldocaml.org)",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:opam.ocaml.org)",
-      "WebFetch(domain:ocaml.org)"
+      "WebFetch(domain:ocaml.org)",
+      "Bash(dune promote:*)"
     ]
   }
 }

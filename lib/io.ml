@@ -80,3 +80,72 @@ let with_stdio f =
     continue k @@ Lwt_main.run @@ real_http_post ~url ~headers ~body
   | effect (Http_get { url; headers }), k ->
     continue k @@ Lwt_main.run @@ real_http_get ~url ~headers
+
+module Mocked = struct
+  open Effect.Deep
+
+  type state =
+    | Waiting_input of (string, unit) continuation
+    | Waiting_http_get of (http_response, unit) continuation
+    | Waiting_http_post of (http_response, unit) continuation
+    | Finished
+
+  type session = {
+    mutable state : state;
+    mutable resume : (unit -> unit) -> unit;
+  }
+
+  let run f =
+    let session = {
+      state = Finished;
+      resume = (fun f -> f ())
+    } in
+    let handle thunk =
+      try thunk () with
+      | effect Input, k ->
+          session.state <- Waiting_input k
+      | effect Input_secret, k ->
+          session.state <- Waiting_input k
+      | effect (Http_get _), k ->
+          session.state <- Waiting_http_get k
+      | effect (Http_post _), k ->
+          session.state <- Waiting_http_post k
+    in
+    session.resume <- handle;
+    handle (fun () ->
+      f ();
+      session.state <- Finished);
+    session
+
+  let fail_wrong_step step session =
+    failwith
+    @@ Printf.sprintf "Tried to provide %s but program is %s" step
+    @@ match session.state with
+      | Waiting_input _ -> "waiting for input"
+      | Waiting_http_get _ -> "performing GET"
+      | Waiting_http_post _ -> "performing POST"
+      | Finished -> "finished"
+
+  let input session value =
+    match session.state with
+    | Waiting_input k ->
+        session.resume @@ fun () -> Effect.Deep.continue k value
+    | _ -> fail_wrong_step "input" session
+
+  let http_get session response =
+    match session.state with
+    | Waiting_http_get k ->
+        session.resume @@ fun () -> Effect.Deep.continue k response
+    | _ -> fail_wrong_step "GET" session
+
+  let http_post session response =
+    match session.state with
+    | Waiting_http_post k ->
+        session.resume @@ fun () -> Effect.Deep.continue k response
+    | _ -> fail_wrong_step "POST" session
+
+  let finish session =
+    match session.state with
+    | Finished -> ()
+    | _ -> fail_wrong_step "finish" session
+end
