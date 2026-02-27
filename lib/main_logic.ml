@@ -5,13 +5,13 @@ let jira_auth_header ~email ~token =
   let encoded = Base64.encode_exn (sprintf "%s:%s" email token) in
   ("Authorization", sprintf "Basic %s" encoded)
 
-let fetch_jira_account_id ~io ~config =
+let fetch_jira_account_id ~config =
   let url = sprintf "%s/rest/api/2/myself" config.Config.jira_base_url in
   let headers = [
     jira_auth_header ~email:config.jira_email ~token:config.jira_token;
     ("Accept", "application/json");
   ] in
-  let response = Lwt_main.run @@ io.Io.http_get ~url ~headers in
+  let response = Io.http_get ~url ~headers in
   if response.status >= 200 && response.status < 300 then
     let json = Yojson.Safe.from_string response.body in
     match Yojson.Safe.Util.member "accountId" json with
@@ -22,13 +22,13 @@ let fetch_jira_account_id ~io ~config =
 
 (* Fetch issue ID and Tempo account key from Jira in one call.
    Uses ?expand=names to discover the "Account" custom field. *)
-let fetch_jira_issue_info ~io ~config ~ticket =
+let fetch_jira_issue_info ~config ~ticket =
   let url = sprintf "%s/rest/api/2/issue/%s?expand=names" config.Config.jira_base_url ticket in
   let headers = [
     jira_auth_header ~email:config.jira_email ~token:config.jira_token;
     ("Accept", "application/json");
   ] in
-  let response = Lwt_main.run @@ io.Io.http_get ~url ~headers in
+  let response = Io.http_get ~url ~headers in
   if response.status >= 200 && response.status < 300 then
     let json = Yojson.Safe.from_string response.body in
     let issue_id = match Yojson.Safe.Util.member "id" json with
@@ -64,13 +64,13 @@ let fetch_jira_issue_info ~io ~config ~ticket =
     Error (sprintf "Jira API error (%d): %s" response.status response.body)
 
 (* Discover work attribute keys from Tempo (Account and Category) *)
-let fetch_work_attribute_keys ~io ~token =
+let fetch_work_attribute_keys ~token =
   let url = "https://api.tempo.io/4/work-attributes" in
   let headers = [
     ("Authorization", sprintf "Bearer %s" token);
     ("Accept", "application/json");
   ] in
-  let response = Lwt_main.run @@ io.Io.http_get ~url ~headers in
+  let response = Io.http_get ~url ~headers in
   if response.status >= 200 && response.status < 300 then
     let json = Yojson.Safe.from_string response.body in
     match Yojson.Safe.Util.(json |> member "results") with
@@ -89,14 +89,14 @@ let fetch_work_attribute_keys ~io ~token =
 
 (* Fetch category options for a STATIC_LIST work attribute.
    Returns list of (value, display_name) pairs. *)
-let fetch_category_options ~io ~token ~attr_key
+let fetch_category_options ~token ~attr_key
   : (Category.t list, string) Result.t =
   let url = sprintf "https://api.tempo.io/4/work-attributes/%s" attr_key in
   let headers = [
     ("Authorization", sprintf "Bearer %s" token);
     ("Accept", "application/json");
   ] in
-  let response = Lwt_main.run @@ io.Io.http_get ~url ~headers in
+  let response = Io.http_get ~url ~headers in
   if response.status >= 200 && response.status < 300 then
     let json = Yojson.Safe.from_string response.body in
     let names_map = match Yojson.Safe.Util.(json |> member "names") with
@@ -125,13 +125,13 @@ let fetch_category_options ~io ~token ~attr_key
       response.status response.body
 
 (* Look up Tempo account key by numeric ID *)
-let fetch_tempo_account_key ~io ~token ~account_id =
+let fetch_tempo_account_key ~token ~account_id =
   let url = sprintf "https://api.tempo.io/4/accounts/%s" account_id in
   let headers = [
     ("Authorization", sprintf "Bearer %s" token);
     ("Accept", "application/json");
   ] in
-  let response = Lwt_main.run @@ io.Io.http_get ~url ~headers in
+  let response = Io.http_get ~url ~headers in
   if response.status >= 200 && response.status < 300 then
     let json = Yojson.Safe.from_string response.body in
     match Yojson.Safe.Util.member "key" json with
@@ -140,40 +140,40 @@ let fetch_tempo_account_key ~io ~token ~account_id =
   else
     Error (sprintf "Tempo account lookup error (%d): %s" response.status response.body)
 
-let prompt_for_entry ~io entry =
-  io.Io.output @@ sprintf "\n%s - %s\n"
+let prompt_for_entry entry =
+  Io.output @@ sprintf "\n%s - %s\n"
     entry.Watson.project
     (Duration.to_string @@ Duration.round_5min entry.total);
   let has_tags = not (List.is_empty entry.tags) in
   if has_tags then
     List.iter entry.tags ~f:(fun tag ->
-      io.output @@ sprintf "  [%-8s %s]\n" tag.Watson.name
+      Io.output @@ sprintf "  [%-8s %s]\n" tag.Watson.name
         (Duration.to_string @@ Duration.round_5min tag.duration));
   let prompt_str = if has_tags
     then "  [ticket] assign all | [s] split by tags | [n] skip | [S] skip always: "
     else "  [ticket] assign | [n] skip | [S] skip always: "
   in
-  io.output prompt_str;
-  let input = io.input () in
+  Io.output prompt_str;
+  let input = Io.input () in
   match input with
   | "n" -> Processor.Skip_once
   | "S" -> Processor.Skip_always
   | "s" when has_tags -> Processor.Split
   | ticket -> Processor.Accept ticket
 
-let prompt_for_tag ~io ~project:_ tag =
-  io.Io.output @@ sprintf "  [%-8s %s] [ticket] assign | [n] skip: "
+let prompt_for_tag ~project:_ tag =
+  Io.output @@ sprintf "  [%-8s %s] [ticket] assign | [n] skip: "
     tag.Watson.name
     (Duration.to_string @@ Duration.round_5min tag.Watson.duration);
-  let input = io.input () in
+  let input = Io.input () in
   match input with
   | "n" -> Processor.Tag_skip
   | "" when Ticket.is_ticket_pattern tag.name -> Processor.Tag_accept tag.name
   | ticket -> Processor.Tag_accept ticket
 
-let prompt_description ~io ticket =
-  io.Io.output @@ sprintf "  Description for %s (optional): " ticket;
-  io.input ()
+let prompt_description ticket =
+  Io.output @@ sprintf "  Description for %s (optional): " ticket;
+  Io.input ()
 
 (* Parse date from Watson date_range like "Tue 03 February 2026 -> Tue 03 February 2026" *)
 let parse_date_from_range date_range =
@@ -222,7 +222,7 @@ let build_worklog_json ~issue_id ~author_account_id ~duration_seconds ~date ~des
   in
   to_string (`Assoc fields)
 
-let post_worklog ~io ~token ~issue_id ~author_account_id ~duration ~date ~description ~attributes =
+let post_worklog ~token ~issue_id ~author_account_id ~duration ~date ~description ~attributes =
   let url = "https://api.tempo.io/4/worklogs" in
   let headers = [
     ("Authorization", sprintf "Bearer %s" token);
@@ -230,17 +230,17 @@ let post_worklog ~io ~token ~issue_id ~author_account_id ~duration ~date ~descri
   ] in
   let duration_seconds = Duration.to_seconds duration in
   let body = build_worklog_json ~issue_id ~author_account_id ~duration_seconds ~date ~description ~attributes in
-  io.Io.http_post ~url ~headers ~body
+  Io.http_post ~url ~headers ~body
 
-let prompt_category_list ~io ~options ~current_value =
+let prompt_category_list ~options ~current_value =
   List.iteri options ~f:(fun i cat ->
     let marker = match current_value with
       | Some v when String.equal v (Category.value cat) -> " *"
       | _ -> ""
     in
-    io.Io.output @@ sprintf "    %d. %s%s\n" (i + 1) (Category.name cat) marker);
-  io.output "  > ";
-  let input = io.input () in
+    Io.output @@ sprintf "    %d. %s%s\n" (i + 1) (Category.name cat) marker);
+  Io.output "  > ";
+  let input = Io.input () in
   match Int.of_string_opt input with
   | Some n when n >= 1 && n <= List.length options ->
     Category.value (List.nth_exn options (n - 1))
@@ -248,27 +248,27 @@ let prompt_category_list ~io ~options ~current_value =
     (* Default to first option on invalid input *)
     Category.value (List.hd_exn options)
 
-let prompt_category ~io ~config ~options ticket =
+let prompt_category ~config ~options ticket =
   match Config.get_category_selection config ticket with
   | Some cached_value ->
     (* Check if cached value still resolves *)
     (match List.find options ~f:(fun cat -> String.equal (Category.value cat) cached_value) with
      | Some cat ->
-       io.Io.output @@ sprintf "  %s category: %s\n    [Enter] keep | [c] change: " ticket (Category.name cat);
-       let input = io.input () in
+       Io.output @@ sprintf "  %s category: %s\n    [Enter] keep | [c] change: " ticket (Category.name cat);
+       let input = Io.input () in
        if String.equal input "c" then begin
-         let value = prompt_category_list ~io ~options ~current_value:(Some cached_value) in
+         let value = prompt_category_list ~options ~current_value:(Some cached_value) in
          Config.set_category_selection config ticket value
        end else
          config
      | None ->
        (* Stale value - warn and prompt fresh *)
-       io.Io.output @@ sprintf "  %s category (previous selection no longer available):\n" ticket;
-       let value = prompt_category_list ~io ~options ~current_value:None in
+       Io.output @@ sprintf "  %s category (previous selection no longer available):\n" ticket;
+       let value = prompt_category_list ~options ~current_value:None in
        Config.set_category_selection config ticket value)
   | None ->
-    io.Io.output @@ sprintf "  %s category:\n" ticket;
-    let value = prompt_category_list ~io ~options ~current_value:None in
+    Io.output @@ sprintf "  %s category:\n" ticket;
+    let value = prompt_category_list ~options ~current_value:None in
     Config.set_category_selection config ticket value
 
 let resolve_category_for_display ~config ~options ticket =
@@ -277,13 +277,13 @@ let resolve_category_for_display ~config ~options ticket =
     List.find options ~f:(fun cat -> String.equal (Category.value cat) value)
   | None -> None
 
-let run_day ~io ~config_path:_ ~config ~date =
+let run_day ~config_path:_ ~config ~date =
   (* Parse watson report *)
   let watson_cmd = sprintf "watson report -G -f %s -t %s" date date in
-  let watson_output = io.Io.run_command watson_cmd in
+  let watson_output = Io.run_command watson_cmd in
   let report = Watson.parse watson_output |> Or_error.ok_exn in
 
-  io.output @@ sprintf "Report: %s (%d entries)\n"
+  Io.output @@ sprintf "Report: %s (%d entries)\n"
     report.date_range (List.length report.entries);
 
   (* Process each entry - using fold for O(n) instead of O(n²) append *)
@@ -292,9 +292,9 @@ let run_day ~io ~config_path:_ ~config ~date =
       let cached = Config.get_mapping cfg entry.project in
       let decisions, new_mapping = Processor.process_entry
         ~entry ~cached
-        ~prompt:(prompt_for_entry ~io)
-        ~tag_prompt:(prompt_for_tag ~io ~project:entry.project)
-        ~describe:(prompt_description ~io)
+        ~prompt:prompt_for_entry
+        ~tag_prompt:(prompt_for_tag ~project:entry.project)
+        ~describe:prompt_description
         () in
       let cfg' = Option.value_map new_mapping ~default:cfg
         ~f:(fun m -> Config.set_mapping cfg entry.project m) in
@@ -303,7 +303,7 @@ let run_day ~io ~config_path:_ ~config ~date =
         | Some { options; _ } when not (String.is_empty cfg'.tempo_category_attr_key)
             && not (List.is_empty options) ->
           List.fold decisions ~init:cfg' ~f:(fun c -> function
-            | Processor.Post { ticket; _ } -> prompt_category ~io ~config:c ~options ticket
+            | Processor.Post { ticket; _ } -> prompt_category ~config:c ~options ticket
             | Processor.Skip _ -> c)
         | _ -> cfg'
       in
@@ -312,7 +312,7 @@ let run_day ~io ~config_path:_ ~config ~date =
   let all_decisions = List.rev all_decisions in
 
   (* Summary *)
-  io.output "\n=== Summary ===\n";
+  Io.output "\n=== Summary ===\n";
   let posts, skips = List.partition_tf all_decisions ~f:(function
     | Processor.Post _ -> true
     | Processor.Skip _ -> false) in
@@ -323,30 +323,30 @@ let run_day ~io ~config_path:_ ~config ~date =
     | Processor.Post { ticket; duration; source; _ } ->
       let cat_str = match resolve_category_for_display ~config ~options:cat_options ticket with
         | Some cat -> sprintf " [%s]" (Category.name cat) | None -> "" in
-      io.output @@ sprintf "POST: %s (%s)%s from %s\n" ticket (Duration.to_string duration) cat_str source
+      Io.output @@ sprintf "POST: %s (%s)%s from %s\n" ticket (Duration.to_string duration) cat_str source
     | Processor.Skip _ -> ());
 
   List.iter skips ~f:(function
     | Processor.Skip { project; duration } ->
-      io.output @@ sprintf "SKIP: %s (%s)\n" project (Duration.to_string duration)
+      Io.output @@ sprintf "SKIP: %s (%s)\n" project (Duration.to_string duration)
     | Processor.Post _ -> ());
 
   (* If there are posts, ask for confirmation and post to Tempo *)
   if not (List.is_empty posts) then begin
-    io.output "\n=== Worklogs to Post ===\n";
+    Io.output "\n=== Worklogs to Post ===\n";
     List.iter posts ~f:(function
       | Processor.Post { ticket; duration; source = _; description } ->
         let desc_suffix = if String.is_empty description then ""
           else sprintf " - %s" description in
-        io.output @@ sprintf "  %s: %s%s\n" ticket (Duration.to_string duration) desc_suffix
+        Io.output @@ sprintf "  %s: %s%s\n" ticket (Duration.to_string duration) desc_suffix
       | Processor.Skip _ -> ());
 
-    io.output "[Enter] post | [n] skip day: ";
-    let confirm = io.input () in
+    Io.output "[Enter] post | [n] skip day: ";
+    let confirm = Io.input () in
 
     if not (String.equal confirm "n") then begin
       let date = parse_date_from_range report.date_range in
-      io.output "\n=== Posting ===\n";
+      Io.output "\n=== Posting ===\n";
 
       (* Resolve issue IDs and post worklogs, accumulating config changes *)
       let results, config =
@@ -358,28 +358,28 @@ let run_day ~io ~config_path:_ ~config ~date =
               match Config.get_issue_id cfg ticket, Config.get_account_key cfg ticket with
               | Some id, Some key -> (id, Some key, cfg)
               | _ ->
-                io.output @@ sprintf "  Looking up %s... " ticket;
-                match fetch_jira_issue_info ~io ~config:cfg ~ticket with
+                Io.output @@ sprintf "  Looking up %s... " ticket;
+                match fetch_jira_issue_info ~config:cfg ~ticket with
                 | Ok (id, account_id) ->
                   let cfg = Config.set_issue_id cfg ticket id in
                   (* Resolve account ID to Tempo account key *)
                   let account_key, cfg = match account_id with
                     | Some acct_id ->
-                      (match fetch_tempo_account_key ~io ~token:cfg.tempo_token ~account_id:acct_id with
+                      (match fetch_tempo_account_key ~token:cfg.tempo_token ~account_id:acct_id with
                        | Ok key ->
-                         io.output @@ sprintf "OK (id=%d, account=%s)\n" id key;
+                         Io.output @@ sprintf "OK (id=%d, account=%s)\n" id key;
                          (Some key, Config.set_account_key cfg ticket key)
                        | Error msg ->
-                         io.output @@ sprintf "OK (id=%d)\n" id;
-                         io.output @@ sprintf "  Warning: could not resolve account %s: %s\n" acct_id msg;
+                         Io.output @@ sprintf "OK (id=%d)\n" id;
+                         Io.output @@ sprintf "  Warning: could not resolve account %s: %s\n" acct_id msg;
                          (None, cfg))
                     | None ->
-                      io.output @@ sprintf "OK (id=%d)\n" id;
+                      Io.output @@ sprintf "OK (id=%d)\n" id;
                       (None, cfg)
                   in
                   (id, account_key, cfg)
                 | Error msg ->
-                  io.output @@ sprintf "FAILED: %s\n" msg;
+                  Io.output @@ sprintf "FAILED: %s\n" msg;
                   failwith @@ sprintf "Could not fetch issue info for %s" ticket
             in
             let cat_options = match cfg.categories with
@@ -394,16 +394,16 @@ let run_day ~io ~config_path:_ ~config ~date =
                    [(cfg.tempo_category_attr_key, Category.value cat)]
                  | _ -> [])
             in
-            let response = Lwt_main.run @@
-              post_worklog ~io ~token:cfg.tempo_token
+            let response =
+              post_worklog ~token:cfg.tempo_token
                 ~issue_id ~author_account_id:cfg.jira_account_id
                 ~duration ~date ~description ~attributes in
             let success = response.Io.status >= 200 && response.status < 300 in
             if success then
-              io.output @@ sprintf "%s: OK\n" ticket
+              Io.output @@ sprintf "%s: OK\n" ticket
             else begin
-              io.output @@ sprintf "%s: FAILED (%d)\n" ticket response.status;
-              io.output @@ sprintf "  Response: %s\n" response.body
+              Io.output @@ sprintf "%s: FAILED (%d)\n" ticket response.status;
+              Io.output @@ sprintf "  Response: %s\n" response.body
             end;
             (success :: acc, cfg)
           | Processor.Skip _ -> (acc, cfg))
@@ -411,21 +411,21 @@ let run_day ~io ~config_path:_ ~config ~date =
 
       let ok_count = List.count results ~f:Fn.id in
       let total_count = List.length results in
-      io.output @@ sprintf "\nPosted %d/%d worklogs\n" ok_count total_count;
+      Io.output @@ sprintf "\nPosted %d/%d worklogs\n" ok_count total_count;
       config
     end
     else config
   end
   else config
 
-let run ~io ~config_path ~dates =
+let run ~config_path ~dates =
   let config = Config.load ~path:config_path |> Or_error.ok_exn in
 
   (* Credential prompts *)
   let config =
     if String.is_empty config.tempo_token then begin
-      io.Io.output "Enter Tempo API token: ";
-      let token = io.input_secret () in
+      Io.output "Enter Tempo API token: ";
+      let token = Io.input_secret () in
       { config with tempo_token = token }
     end
     else config
@@ -433,8 +433,8 @@ let run ~io ~config_path ~dates =
 
   let config =
     if String.is_empty config.jira_base_url then begin
-      io.Io.output "Enter Jira subdomain (e.g., 'company' for company.atlassian.net): ";
-      let subdomain = io.input () in
+      Io.output "Enter Jira subdomain (e.g., 'company' for company.atlassian.net): ";
+      let subdomain = Io.input () in
       let url = sprintf "https://%s.atlassian.net" subdomain in
       { config with jira_base_url = url }
     end
@@ -443,8 +443,8 @@ let run ~io ~config_path ~dates =
 
   let config =
     if String.is_empty config.jira_email then begin
-      io.Io.output "Enter Jira email: ";
-      let email = io.input () in
+      Io.output "Enter Jira email: ";
+      let email = Io.input () in
       { config with jira_email = email }
     end
     else config
@@ -452,8 +452,8 @@ let run ~io ~config_path ~dates =
 
   let config =
     if String.is_empty config.jira_token then begin
-      io.Io.output "Enter Jira API token (https://id.atlassian.com/manage-profile/security/api-tokens): ";
-      let token = io.input_secret () in
+      Io.output "Enter Jira API token (https://id.atlassian.com/manage-profile/security/api-tokens): ";
+      let token = Io.input_secret () in
       { config with jira_token = token }
     end
     else config
@@ -462,13 +462,13 @@ let run ~io ~config_path ~dates =
   (* Fetch Jira account ID if not cached *)
   let config =
     if String.is_empty config.jira_account_id then begin
-      io.Io.output "Fetching Jira account ID... ";
-      match fetch_jira_account_id ~io ~config with
+      Io.output "Fetching Jira account ID... ";
+      match fetch_jira_account_id ~config with
       | Ok account_id ->
-        io.output @@ sprintf "OK (%s)\n" account_id;
+        Io.output @@ sprintf "OK (%s)\n" account_id;
         { config with jira_account_id = account_id }
       | Error msg ->
-        io.output @@ sprintf "FAILED: %s\n" msg;
+        Io.output @@ sprintf "FAILED: %s\n" msg;
         failwith "Could not fetch Jira account ID"
     end
     else config
@@ -481,7 +481,7 @@ let run ~io ~config_path ~dates =
   let config =
     if String.is_empty config.tempo_account_attr_key
        || String.is_empty config.tempo_category_attr_key then begin
-      match fetch_work_attribute_keys ~io ~token:config.tempo_token with
+      match fetch_work_attribute_keys ~token:config.tempo_token with
       | Ok (account_key, category_key) ->
         let cfg = match account_key with
           | Some k when String.is_empty config.tempo_account_attr_key ->
@@ -502,7 +502,7 @@ let run ~io ~config_path ~dates =
     match config.categories with
     | Some _ -> config
     | None when not @@ String.is_empty config.tempo_category_attr_key -> (
-      match fetch_category_options ~io ~token:config.tempo_token
+      match fetch_category_options ~token:config.tempo_token
           ~attr_key:config.tempo_category_attr_key with
        | Ok options ->
          { config with categories = Some {
@@ -511,7 +511,7 @@ let run ~io ~config_path ~dates =
            }
          }
        | Error msg ->
-         io.Io.output @@ sprintf "Warning: could not fetch categories: %s\n" msg;
+         Io.output @@ sprintf "Warning: could not fetch categories: %s\n" msg;
          config
     )
     | None -> config
@@ -525,8 +525,8 @@ let run ~io ~config_path ~dates =
   let config =
     List.fold dates ~init:config ~f:(fun cfg date ->
       if multi_day then
-        io.output @@ sprintf "\n=== %s ===\n" date;
-      run_day ~io ~config_path ~config:cfg ~date)
+        Io.output @@ sprintf "\n=== %s ===\n" date;
+      run_day ~config_path ~config:cfg ~date)
   in
 
   (* Save final config *)

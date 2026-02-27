@@ -30,7 +30,7 @@ let with_temp_config f =
     ~finally:(fun () ->
       ignore @@ Core_unix.system @@ sprintf "rm -rf %s" @@ Filename.quote temp_dir)
 
-let make_io ?(http_get_responses=[]) ?(http_post_responses=[]) ?run_command ~inputs ~watson_output () =
+let with_mock_io ?(http_get_responses=[]) ?(http_post_responses=[]) ?run_command ~inputs ~watson_output f =
   let input_queue = Queue.of_list inputs in
   let output_buf = Buffer.create 256 in
   let http_get_queue = Queue.of_list http_get_responses in
@@ -44,21 +44,21 @@ let make_io ?(http_get_responses=[]) ?(http_post_responses=[]) ?run_command ~inp
     | Some f -> f
     | None -> (fun _cmd -> watson_output)
   in
-  let io = Io.create
-    ~input:dequeue_input
-    ~input_secret:dequeue_input
-    ~output:(fun s -> Buffer.add_string output_buf s)
-    ~run_command:run_cmd
-    ~http_post:(fun ~url:_ ~headers:_ ~body:_ ->
-      let resp = Queue.dequeue http_post_queue
+  let open Effect.Deep in
+  try f (); Buffer.contents output_buf with
+  | effect Io.Input, k -> continue k (dequeue_input () : string)
+  | effect Io.Input_secret, k -> continue k (dequeue_input () : string)
+  | effect (Io.Output s), k -> Buffer.add_string output_buf s; continue k ()
+  | effect (Io.Run_command cmd), k -> continue k (run_cmd cmd : string)
+  | effect (Io.Http_post _), k ->
+      let resp : Io.http_response = Queue.dequeue http_post_queue
+        |> Option.value ~default:{ Io.status = 200; body = "{}" }
+      in
+      continue k resp
+  | effect (Io.Http_get _), k ->
+      let resp : Io.http_response = Queue.dequeue http_get_queue
         |> Option.value ~default:{ Io.status = 200; body = "{}" } in
-      Lwt.return resp)
-    ~http_get:(fun ~url:_ ~headers:_ ->
-      let resp = Queue.dequeue http_get_queue
-        |> Option.value ~default:{ Io.status = 200; body = "{}" } in
-      Lwt.return resp)
-  in
-  (io, fun () -> Buffer.contents output_buf)
+      continue k resp
 
 (* Normalize output by replacing dynamic temp paths with a placeholder *)
 let normalize_output ~config_path output =
@@ -92,11 +92,11 @@ let%expect_test "interactive flow prompts for unmapped entries" =
     Config.save ~path:config_path config |> Or_error.ok_exn;
 
     (* Inputs: ARCH-1 for architecture, desc for ARCH-1, category 1, S for breaks, n for cr, n to skip day *)
-    let io, get_output = make_io
+    let output = with_mock_io
       ~inputs:["ARCH-1"; "arch work"; "1"; "S"; "n"; "n"]
-      ~watson_output:sample_watson_report () in
-    Main_logic.run ~io ~config_path ~dates:["2026-02-03"];
-    print_string @@ normalize_output ~config_path @@ get_output ();
+      ~watson_output:sample_watson_report (fun () ->
+        Main_logic.run ~config_path ~dates:["2026-02-03"]) in
+    print_string @@ normalize_output ~config_path output;
   [%expect {|
     Report: Tue 03 February 2026 -> Tue 03 February 2026 (3 entries)
 
@@ -137,9 +137,9 @@ let%expect_test "uses cached mappings with auto_extract" =
     Config.save ~path:config_path config |> Or_error.ok_exn;
 
     (* Inputs: description, category for ARCH-1, category for FK-3080, category for FK-3083, n to skip day *)
-    let io, get_output = make_io ~inputs:[""; "1"; "1"; "1"; "n"] ~watson_output:sample_watson_report () in
-    Main_logic.run ~io ~config_path ~dates:["2026-02-03"];
-    print_string @@ normalize_output ~config_path @@ get_output ();
+    let output = with_mock_io ~inputs:[""; "1"; "1"; "1"; "n"] ~watson_output:sample_watson_report (fun () ->
+      Main_logic.run ~config_path ~dates:["2026-02-03"]) in
+    print_string @@ normalize_output ~config_path output;
   [%expect {|
     Report: Tue 03 February 2026 -> Tue 03 February 2026 (3 entries)
       Description for ARCH-1 (optional):   ARCH-1 category:
@@ -174,9 +174,9 @@ let%expect_test "handles empty watson report" =
     let config = test_config_with_mappings [] in
     Config.save ~path:config_path config |> Or_error.ok_exn;
 
-    let io, get_output = make_io ~inputs:[] ~watson_output:empty_watson_report () in
-    Main_logic.run ~io ~config_path ~dates:["2026-02-03"];
-    print_string @@ normalize_output ~config_path @@ get_output ();
+    let output = with_mock_io ~inputs:[] ~watson_output:empty_watson_report (fun () ->
+      Main_logic.run ~config_path ~dates:["2026-02-03"]) in
+    print_string @@ normalize_output ~config_path output;
   [%expect {|
     Report: Mon 03 February 2026 -> Mon 03 February 2026 (0 entries)
 
@@ -197,11 +197,11 @@ breaks - 30m 00s
 Total: 2h 30m 00s|} in
 
     (* Inputs: PROJ-123 for coding, desc, category 1, S for breaks, n to skip day *)
-    let io, get_output = make_io
+    let output = with_mock_io
       ~inputs:["PROJ-123"; ""; "1"; "S"; "n"]
-      ~watson_output:watson () in
-    Main_logic.run ~io ~config_path ~dates:["2026-02-03"];
-    print_string @@ normalize_output ~config_path @@ get_output ());
+      ~watson_output:watson (fun () ->
+        Main_logic.run ~config_path ~dates:["2026-02-03"]) in
+    print_string @@ normalize_output ~config_path output);
   [%expect {|
     Report: Mon 03 February 2026 -> Mon 03 February 2026 (2 entries)
 
@@ -239,11 +239,11 @@ breaks - 45m 00s
 Total: 2h 15m 00s|} in
 
     (* Inputs: description, category 1, n to skip day - no entry prompts needed *)
-    let io, get_output = make_io
+    let output = with_mock_io
       ~inputs:[""; "1"; "n"]
-      ~watson_output:watson () in
-    Main_logic.run ~io ~config_path ~dates:["2026-02-03"];
-    print_string @@ normalize_output ~config_path @@ get_output ());
+      ~watson_output:watson (fun () ->
+        Main_logic.run ~config_path ~dates:["2026-02-03"]) in
+    print_string @@ normalize_output ~config_path output);
   [%expect {|
     Report: Mon 03 February 2026 -> Mon 03 February 2026 (2 entries)
       Description for PROJ-123 (optional):   PROJ-123 category:
@@ -277,12 +277,12 @@ coding - 1h 00m 00s
 Total: 1h 00m 00s|} in
 
     (* Inputs: description "test work", category 1, Enter to confirm *)
-    let io, get_output = make_io
+    let output = with_mock_io
       ~inputs:["test work"; "1"; ""]
       ~http_post_responses:[{ Io.status = 200; body = "{\"id\": 999}" }]
-      ~watson_output:watson () in
-    Main_logic.run ~io ~config_path ~dates:["2026-02-03"];
-    print_string @@ normalize_output ~config_path @@ get_output ());
+      ~watson_output:watson (fun () ->
+        Main_logic.run ~config_path ~dates:["2026-02-03"]) in
+    print_string @@ normalize_output ~config_path output);
   [%expect {|
     Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
       Description for PROJ-123 (optional):   PROJ-123 category:
@@ -318,12 +318,12 @@ coding - 1h 00m 00s
 Total: 1h 00m 00s|} in
 
     (* Mock a 400 error response. Inputs: description, category 1, Enter to confirm *)
-    let io, get_output = make_io
+    let output = with_mock_io
       ~inputs:[""; "1"; ""]
       ~http_post_responses:[{ Io.status = 400; body = "{\"error\": \"Invalid issue\"}" }]
-      ~watson_output:watson () in
-    Main_logic.run ~io ~config_path ~dates:["2026-02-03"];
-    print_string @@ normalize_output ~config_path @@ get_output ());
+      ~watson_output:watson (fun () ->
+        Main_logic.run ~config_path ~dates:["2026-02-03"]) in
+    print_string @@ normalize_output ~config_path output);
   [%expect {|
     Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
       Description for PROJ-123 (optional):   PROJ-123 category:
@@ -364,16 +364,16 @@ Total: 1h 00m 00s|} in
     }|} in
     let tempo_account_response = {|{"key": "ACCT-2", "name": "Operations"}|} in
     (* Inputs: description, category 1, Enter to confirm *)
-    let io, get_output = make_io
+    let output = with_mock_io
       ~inputs:[""; "1"; ""]
       ~http_get_responses:[
         { Io.status = 200; body = jira_issue_response };
         { Io.status = 200; body = tempo_account_response };
       ]
       ~http_post_responses:[{ Io.status = 200; body = "{}" }]
-      ~watson_output:watson () in
-    Main_logic.run ~io ~config_path ~dates:["2026-02-03"];
-    print_string @@ normalize_output ~config_path @@ get_output ());
+      ~watson_output:watson (fun () ->
+        Main_logic.run ~config_path ~dates:["2026-02-03"]) in
+    print_string @@ normalize_output ~config_path output);
   [%expect {|
     Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
       Description for PROJ-123 (optional):   PROJ-123 category:
@@ -410,12 +410,12 @@ coding - 1h 00m 00s
 Total: 1h 00m 00s|} in
 
     (* Inputs: description, "2" to select Meeting category, Enter to confirm post *)
-    let io, get_output = make_io
+    let output = with_mock_io
       ~inputs:[""; "2"; ""]
       ~http_post_responses:[{ Io.status = 200; body = "{}" }]
-      ~watson_output:watson () in
-    Main_logic.run ~io ~config_path ~dates:["2026-02-03"];
-    print_string @@ normalize_output ~config_path @@ get_output ());
+      ~watson_output:watson (fun () ->
+        Main_logic.run ~config_path ~dates:["2026-02-03"]) in
+    print_string @@ normalize_output ~config_path output);
   [%expect {|
     Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
       Description for PROJ-123 (optional):   PROJ-123 category:
@@ -452,11 +452,11 @@ coding - 1h 00m 00s
 Total: 1h 00m 00s|} in
 
     (* Inputs: description, "c" to change category, "3" for Support, n to skip day *)
-    let io, get_output = make_io
+    let output = with_mock_io
       ~inputs:[""; "c"; "3"; "n"]
-      ~watson_output:watson () in
-    Main_logic.run ~io ~config_path ~dates:["2026-02-03"];
-    print_string @@ normalize_output ~config_path @@ get_output ());
+      ~watson_output:watson (fun () ->
+        Main_logic.run ~config_path ~dates:["2026-02-03"]) in
+    print_string @@ normalize_output ~config_path output);
   [%expect {|
     Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
       Description for PROJ-123 (optional):   PROJ-123 category: Development
@@ -496,12 +496,12 @@ Total: 2h 00m 00s|} in
       else failwith @@ sprintf "Unexpected command: %s" cmd
     in
     (* Inputs: description+category+n for day1, description+keep category+n for day2 *)
-    let io, get_output = make_io
+    let output = with_mock_io
       ~inputs:[""; "1"; "n"; ""; ""; "n"]
       ~run_command
-      ~watson_output:"" () in
-    Main_logic.run ~io ~config_path ~dates:["2026-02-03"; "2026-02-04"];
-    print_string @@ normalize_output ~config_path @@ get_output ());
+      ~watson_output:"" (fun () ->
+        Main_logic.run ~config_path ~dates:["2026-02-03"; "2026-02-04"]) in
+    print_string @@ normalize_output ~config_path output);
   [%expect {|
     === 2026-02-03 ===
     Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
@@ -554,13 +554,13 @@ Total: 2h 00m 00s|} in
       else failwith @@ sprintf "Unexpected command: %s" cmd
     in
     (* Day 1: description, category, n to skip. Day 2: description, keep category, Enter to post *)
-    let io, get_output = make_io
+    let output = with_mock_io
       ~inputs:[""; "1"; "n"; ""; ""; ""]
       ~run_command
       ~http_post_responses:[{ Io.status = 200; body = "{}" }]
-      ~watson_output:"" () in
-    Main_logic.run ~io ~config_path ~dates:["2026-02-03"; "2026-02-04"];
-    print_string @@ normalize_output ~config_path @@ get_output ();
+      ~watson_output:"" (fun () ->
+        Main_logic.run ~config_path ~dates:["2026-02-03"; "2026-02-04"]) in
+    print_string @@ normalize_output ~config_path output;
   [%expect {|
     === 2026-02-03 ===
     Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
@@ -605,11 +605,11 @@ cr - 51m 02s
 Total: 51m 02s|} in
 
     (* Inputs: "s" to split, Enter to accept FK-3080, desc, Enter to accept FK-3083, desc, category for FK-3080, category for FK-3083, n to skip day *)
-    let io, get_output = make_io
+    let output = with_mock_io
       ~inputs:["s"; ""; "review work"; ""; ""; "1"; "1"; "n"]
-      ~watson_output:watson () in
-    Main_logic.run ~io ~config_path ~dates:["2026-02-03"];
-    print_string @@ normalize_output ~config_path @@ get_output ());
+      ~watson_output:watson (fun () ->
+        Main_logic.run ~config_path ~dates:["2026-02-03"]) in
+    print_string @@ normalize_output ~config_path output);
   [%expect {|
     Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
 
@@ -649,11 +649,11 @@ cr - 51m 02s
 Total: 51m 02s|} in
 
     (* Inputs: "s" to split, Enter to accept FK-3080, desc, "n" to skip review, category for FK-3080, n to skip day *)
-    let io, get_output = make_io
+    let output = with_mock_io
       ~inputs:["s"; ""; ""; "n"; "1"; "n"]
-      ~watson_output:watson () in
-    Main_logic.run ~io ~config_path ~dates:["2026-02-03"];
-    print_string @@ normalize_output ~config_path @@ get_output ());
+      ~watson_output:watson (fun () ->
+        Main_logic.run ~config_path ~dates:["2026-02-03"]) in
+    print_string @@ normalize_output ~config_path output);
   [%expect {|
     Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
 

@@ -1,1 +1,1 @@
-val run : io:Io.t -> config_path:string -> dates:string list -> unit
+val run : config_path:string -> dates:string list -> unit

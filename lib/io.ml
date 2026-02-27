@@ -5,14 +5,22 @@ type http_response = {
   body : string;
 }
 
-type t = {
-  input : unit -> string;
-  input_secret : unit -> string;
-  output : string -> unit;
-  run_command : string -> string;
-  http_post : url:string -> headers:(string * string) list -> body:string -> http_response Lwt.t;
-  http_get : url:string -> headers:(string * string) list -> http_response Lwt.t;
-}
+type _ Effect.t +=
+  | Input : string Effect.t
+  | Input_secret : string Effect.t
+  | Output : string -> unit Effect.t
+  | Run_command : string -> string Effect.t
+  | Http_post : { url: string; headers: (string * string) list; body: string }
+      -> http_response Effect.t
+  | Http_get : { url: string; headers: (string * string) list }
+      -> http_response Effect.t
+
+let input () = Effect.perform Input
+let input_secret () = Effect.perform Input_secret
+let output s = Effect.perform (Output s)
+let run_command cmd = Effect.perform (Run_command cmd)
+let http_post ~url ~headers ~body = Effect.perform (Http_post { url; headers; body })
+let http_get ~url ~headers = Effect.perform (Http_get { url; headers })
 
 let real_http_post ~url ~headers ~body =
   let open Lwt.Syntax in
@@ -49,21 +57,26 @@ let read_secret () =
   | exception Core_unix.Unix_error _ ->
     In_channel.(input_line_exn stdin)
 
-let stdio = {
-  input = (fun () -> In_channel.(input_line_exn stdin));
-  input_secret = read_secret;
-  output = (fun s -> Out_channel.(output_string stdout s; flush stdout));
-  run_command = (fun cmd ->
-    let ic = Core_unix.open_process_in cmd in
-    let output = In_channel.input_all ic in
-    match Core_unix.close_process_in ic with
-    | Ok () -> output
-    | Error err ->
-      failwith @@ sprintf "Command failed: %s (%s)" cmd
-        (Core_unix.Exit_or_signal.to_string_hum (Error err)));
-  http_post = real_http_post;
-  http_get = real_http_get;
-}
+let run_command_impl cmd =
+  let ic = Core_unix.open_process_in cmd in
+  let output = In_channel.input_all ic in
+  match Core_unix.close_process_in ic with
+  | Ok () -> output
+  | Error err ->
+    failwith @@ sprintf "Command failed: %s (%s)" cmd
+      @@ Core_unix.Exit_or_signal.to_string_hum @@ Error err
 
-let create ~input ~input_secret ~output ~run_command ~http_post ~http_get =
-  { input; input_secret; output; run_command; http_post; http_get }
+let with_stdio f =
+  let open Effect.Deep in
+  try f () with
+  | effect Input, k -> continue k In_channel.(input_line_exn stdin)
+  | effect Input_secret, k -> continue k @@ read_secret ()
+  | effect (Output s), k ->
+    Out_channel.(output_string stdout s; flush stdout);
+    continue k ()
+  | effect (Run_command cmd), k ->
+    continue k @@ run_command_impl cmd
+  | effect (Http_post { url; headers; body }), k ->
+    continue k @@ Lwt_main.run @@ real_http_post ~url ~headers ~body
+  | effect (Http_get { url; headers }), k ->
+    continue k @@ Lwt_main.run @@ real_http_get ~url ~headers
