@@ -35,21 +35,21 @@ let with_mock_io ?(http_get_responses=[]) ?(http_post_responses=[]) ?run_command
   let output_buf = Buffer.create 256 in
   let http_get_queue = Queue.of_list http_get_responses in
   let http_post_queue = Queue.of_list http_post_responses in
-  let dequeue_input () =
+  let dequeue_input () : string =
     match Queue.dequeue input_queue with
     | Some line -> line
     | None -> failwith "No more input available"
   in
-  let run_cmd = match run_command with
+  let run_cmd : string -> string = match run_command with
     | Some f -> f
     | None -> (fun _cmd -> watson_output)
   in
   let open Effect.Deep in
   try f (); Buffer.contents output_buf with
-  | effect Io.Input, k -> continue k (dequeue_input () : string)
-  | effect Io.Input_secret, k -> continue k (dequeue_input () : string)
+  | effect Io.Input, k -> continue k @@ dequeue_input ()
+  | effect Io.Input_secret, k -> continue k @@ dequeue_input ()
   | effect (Io.Output s), k -> Buffer.add_string output_buf s; continue k ()
-  | effect (Io.Run_command cmd), k -> continue k (run_cmd cmd : string)
+  | effect (Io.Run_command cmd), k -> continue k @@ run_cmd cmd
   | effect (Io.Http_post _), k ->
       let resp : Io.http_response = Queue.dequeue http_post_queue
         |> Option.value ~default:{ Io.status = 200; body = "{}" }
