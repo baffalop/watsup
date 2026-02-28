@@ -2,6 +2,8 @@ open Core
 open Watsup
 module Main_logic = Watsup.Main_logic
 
+let test_date = "2026-02-03"
+
 let sample_watson_report =
   {|Tue 03 February 2026 -> Tue 03 February 2026
 
@@ -26,17 +28,18 @@ let with_temp_config f =
   let temp_dir = Core_unix.mkdtemp "/tmp/watsup_test" in
   let config_path = temp_dir ^/ ".config" ^/ "watsup" ^/ "config.sexp" in
   Core_unix.mkdir_p (Filename.dirname config_path);
-  protect ~f:(fun () -> f ~config_path ~temp_dir)
+  protect ~f:(fun () -> f ~config_path)
     ~finally:(fun () ->
-      ignore @@ Core_unix.system @@ sprintf "rm -rf %s" @@ Filename.quote temp_dir)
+      ignore @@ Core_unix.system @@ sprintf "rm -r %s" @@ Filename.quote temp_dir)
 
-let start ?run_command ~watson_output ~config_path f =
+let start ~config_path ?(watson_output=[(test_date, sample_watson_report)]) f =
   let normalize s =
     String.substr_replace_all s ~pattern:config_path ~with_:"<CONFIG_PATH>"
   in
-  let run_cmd : string -> string = match run_command with
-    | Some fn -> fn
-    | None -> (fun _cmd -> watson_output)
+  let run_cmd cmd : string =
+    List.find watson_output ~f:(fun (term, _) -> String.is_substring ~substring:term cmd)
+    |> Option.value_exn ~message:("Command not found in mock command list: " ^ cmd)
+    |> Tuple2.get2
   in
   Io.Mocked.run @@ fun () ->
     let open Effect.Deep in
@@ -44,7 +47,8 @@ let start ?run_command ~watson_output ~config_path f =
     | effect Io.Output s, k ->
         print_string @@ normalize s;
         continue k ()
-    | effect Io.Run_command cmd, k -> continue k @@ run_cmd cmd
+    | effect Io.Run_command cmd, k ->
+        continue k @@ run_cmd cmd
 
 (* Helper to create fully configured config for testing *)
 let test_config_with_mappings mappings = {
@@ -70,11 +74,12 @@ let test_config_with_mappings mappings = {
 open Io.Mocked
 
 let%expect_test "interactive flow prompts for unmapped entries" =
-  with_temp_config @@ fun ~config_path ~temp_dir:_ ->
+  with_temp_config @@ fun ~config_path ->
     let config = test_config_with_mappings [] in
     Config.save ~path:config_path config |> Or_error.ok_exn;
-    let t = start ~watson_output:sample_watson_report ~config_path (fun () ->
-      Main_logic.run ~config_path ~dates:["2026-02-03"]) in
+    let t = start ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
     [%expect {|
       Report: Tue 03 February 2026 -> Tue 03 February 2026 (3 entries)
 
@@ -120,7 +125,7 @@ let%expect_test "interactive flow prompts for unmapped entries" =
     finish t
 
 let%expect_test "uses cached mappings with auto_extract" =
-  with_temp_config @@ fun ~config_path ~temp_dir:_ ->
+  with_temp_config @@ fun ~config_path ->
     let config = {
       (test_config_with_mappings [
         ("architecture", Config.Ticket "ARCH-1");
@@ -130,8 +135,9 @@ let%expect_test "uses cached mappings with auto_extract" =
       tempo_token = "existing-token-xyz";
     } in
     Config.save ~path:config_path config |> Or_error.ok_exn;
-    let t = start ~watson_output:sample_watson_report ~config_path (fun () ->
-      Main_logic.run ~config_path ~dates:["2026-02-03"]) in
+    let t = start ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
     [%expect {|
       Report: Tue 03 February 2026 -> Tue 03 February 2026 (3 entries)
         Description for ARCH-1 (optional):
@@ -179,11 +185,12 @@ let%expect_test "uses cached mappings with auto_extract" =
     finish t
 
 let%expect_test "handles empty watson report" =
-  with_temp_config @@ fun ~config_path ~temp_dir:_ ->
+  with_temp_config @@ fun ~config_path ->
     let config = test_config_with_mappings [] in
     Config.save ~path:config_path config |> Or_error.ok_exn;
-    let t = start ~watson_output:empty_watson_report ~config_path (fun () ->
-      Main_logic.run ~config_path ~dates:["2026-02-03"]) in
+    let t = start ~watson_output:[(test_date, empty_watson_report)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
     [%expect {|
       Report: Mon 03 February 2026 -> Mon 03 February 2026 (0 entries)
 
@@ -192,7 +199,7 @@ let%expect_test "handles empty watson report" =
     finish t
 
 let%expect_test "interactive flow with mixed decisions" =
-  with_temp_config @@ fun ~config_path ~temp_dir:_ ->
+  with_temp_config @@ fun ~config_path ->
     let config = test_config_with_mappings [] in
     Config.save ~path:config_path config |> Or_error.ok_exn;
     let watson = {|Mon 03 February 2026 -> Mon 03 February 2026
@@ -202,8 +209,9 @@ coding - 2h 00m 00s
 breaks - 30m 00s
 
 Total: 2h 30m 00s|} in
-    let t = start ~watson_output:watson ~config_path (fun () ->
-      Main_logic.run ~config_path ~dates:["2026-02-03"]) in
+    let t = start ~watson_output:[(test_date, watson)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
     [%expect {|
       Report: Mon 03 February 2026 -> Mon 03 February 2026 (2 entries)
 
@@ -240,7 +248,7 @@ Total: 2h 30m 00s|} in
     finish t
 
 let%expect_test "skips prompts for cached mappings" =
-  with_temp_config @@ fun ~config_path ~temp_dir:_ ->
+  with_temp_config @@ fun ~config_path ->
     let config = test_config_with_mappings [
       ("coding", Config.Ticket "PROJ-123");
       ("breaks", Config.Skip);
@@ -253,8 +261,9 @@ coding - 1h 30m 00s
 breaks - 45m 00s
 
 Total: 2h 15m 00s|} in
-    let t = start ~watson_output:watson ~config_path (fun () ->
-      Main_logic.run ~config_path ~dates:["2026-02-03"]) in
+    let t = start ~watson_output:[(test_date, watson)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
     [%expect {|
       Report: Mon 03 February 2026 -> Mon 03 February 2026 (2 entries)
         Description for PROJ-123 (optional):
@@ -282,7 +291,7 @@ Total: 2h 15m 00s|} in
     finish t
 
 let%expect_test "posts worklogs with mocked HTTP" =
-  with_temp_config @@ fun ~config_path ~temp_dir:_ ->
+  with_temp_config @@ fun ~config_path ->
     let config = {
       (test_config_with_mappings [("coding", Config.Ticket "PROJ-123")]) with
       issue_ids = [("PROJ-123", 12345)];
@@ -294,8 +303,9 @@ let%expect_test "posts worklogs with mocked HTTP" =
 coding - 1h 00m 00s
 
 Total: 1h 00m 00s|} in
-    let t = start ~watson_output:watson ~config_path (fun () ->
-      Main_logic.run ~config_path ~dates:["2026-02-03"]) in
+    let t = start ~watson_output:[(test_date, watson)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
     [%expect {|
       Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
         Description for PROJ-123 (optional):
@@ -328,7 +338,7 @@ Total: 1h 00m 00s|} in
     finish t
 
 let%expect_test "handles failed POST with error message" =
-  with_temp_config @@ fun ~config_path ~temp_dir:_ ->
+  with_temp_config @@ fun ~config_path ->
     let config = {
       (test_config_with_mappings [("coding", Config.Ticket "PROJ-123")]) with
       issue_ids = [("PROJ-123", 12345)];
@@ -340,8 +350,9 @@ let%expect_test "handles failed POST with error message" =
 coding - 1h 00m 00s
 
 Total: 1h 00m 00s|} in
-    let t = start ~watson_output:watson ~config_path (fun () ->
-      Main_logic.run ~config_path ~dates:["2026-02-03"]) in
+    let t = start ~watson_output:[(test_date, watson)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
     [%expect {|
       Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
         Description for PROJ-123 (optional):
@@ -375,7 +386,7 @@ Total: 1h 00m 00s|} in
     finish t
 
 let%expect_test "looks up issue ID from Jira when not cached" =
-  with_temp_config @@ fun ~config_path ~temp_dir:_ ->
+  with_temp_config @@ fun ~config_path ->
     let config = test_config_with_mappings [("coding", Config.Ticket "PROJ-123")] in
     Config.save ~path:config_path config |> Or_error.ok_exn;
     let watson = {|Mon 03 February 2026 -> Mon 03 February 2026
@@ -389,8 +400,9 @@ Total: 1h 00m 00s|} in
       "fields": {"customfield_10201": {"id": 273, "value": "Operations"}}
     }|} in
     let tempo_account_response = {|{"key": "ACCT-2", "name": "Operations"}|} in
-    let t = start ~watson_output:watson ~config_path (fun () ->
-      Main_logic.run ~config_path ~dates:["2026-02-03"]) in
+    let t = start ~watson_output:[(test_date, watson)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
     [%expect {|
       Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
         Description for PROJ-123 (optional):
@@ -430,7 +442,7 @@ Total: 1h 00m 00s|} in
     finish t
 
 let%expect_test "prompts for category per worklog when not cached" =
-  with_temp_config @@ fun ~config_path ~temp_dir:_ ->
+  with_temp_config @@ fun ~config_path ->
     let config = {
       (test_config_with_mappings [("coding", Config.Ticket "PROJ-123")]) with
       issue_ids = [("PROJ-123", 12345)];
@@ -442,8 +454,9 @@ let%expect_test "prompts for category per worklog when not cached" =
 coding - 1h 00m 00s
 
 Total: 1h 00m 00s|} in
-    let t = start ~watson_output:watson ~config_path (fun () ->
-      Main_logic.run ~config_path ~dates:["2026-02-03"]) in
+    let t = start ~watson_output:[(test_date, watson)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
     [%expect {|
       Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
         Description for PROJ-123 (optional):
@@ -476,7 +489,7 @@ Total: 1h 00m 00s|} in
     finish t
 
 let%expect_test "allows overriding cached category per worklog" =
-  with_temp_config @@ fun ~config_path ~temp_dir:_ ->
+  with_temp_config @@ fun ~config_path ->
     let config = {
       (test_config_with_mappings [("coding", Config.Ticket "PROJ-123")]) with
       issue_ids = [("PROJ-123", 12345)];
@@ -489,8 +502,9 @@ let%expect_test "allows overriding cached category per worklog" =
 coding - 1h 00m 00s
 
 Total: 1h 00m 00s|} in
-    let t = start ~watson_output:watson ~config_path (fun () ->
-      Main_logic.run ~config_path ~dates:["2026-02-03"]) in
+    let t = start ~watson_output:[(test_date, watson)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
     [%expect {|
       Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
         Description for PROJ-123 (optional):
@@ -521,28 +535,26 @@ Total: 1h 00m 00s|} in
     finish t
 
 let%expect_test "multi-day processing with day headers" =
-  with_temp_config @@ fun ~config_path ~temp_dir:_ ->
+  with_temp_config @@ fun ~config_path ->
     let config = test_config_with_mappings [
       ("coding", Config.Ticket "PROJ-123");
     ] in
     Config.save ~path:config_path config |> Or_error.ok_exn;
-    let watson_day1 = {|Mon 03 February 2026 -> Mon 03 February 2026
+    let watson_output = [
+      ("2026-02-03", {|Mon 03 February 2026 -> Mon 03 February 2026
 
 coding - 1h 00m 00s
 
-Total: 1h 00m 00s|} in
-    let watson_day2 = {|Tue 04 February 2026 -> Tue 04 February 2026
+Total: 1h 00m 00s|});
+      ("2026-02-04", {|Tue 04 February 2026 -> Tue 04 February 2026
 
 coding - 2h 00m 00s
 
-Total: 2h 00m 00s|} in
-    let run_command cmd =
-      if String.is_substring cmd ~substring:"2026-02-03" then watson_day1
-      else if String.is_substring cmd ~substring:"2026-02-04" then watson_day2
-      else failwith @@ sprintf "Unexpected command: %s" cmd
+Total: 2h 00m 00s|});
+    ] in
+    let t = start ~watson_output ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:["2026-02-03"; "2026-02-04"])
     in
-    let t = start ~run_command ~watson_output:"" ~config_path (fun () ->
-      Main_logic.run ~config_path ~dates:["2026-02-03"; "2026-02-04"]) in
     [%expect {|
       === 2026-02-03 ===
       Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
@@ -590,30 +602,28 @@ Total: 2h 00m 00s|} in
     finish t
 
 let%expect_test "skip day continues to next day" =
-  with_temp_config @@ fun ~config_path ~temp_dir:_ ->
+  with_temp_config @@ fun ~config_path ->
     let config = {
       (test_config_with_mappings [("coding", Config.Ticket "PROJ-123")]) with
       issue_ids = [("PROJ-123", 12345)];
       account_keys = [("PROJ-123", "ACCT-1")];
     } in
     Config.save ~path:config_path config |> Or_error.ok_exn;
-    let watson_day1 = {|Mon 03 February 2026 -> Mon 03 February 2026
+    let watson_output = [
+      ("2026-02-03", {|Mon 03 February 2026 -> Mon 03 February 2026
 
 coding - 1h 00m 00s
 
-Total: 1h 00m 00s|} in
-    let watson_day2 = {|Tue 04 February 2026 -> Tue 04 February 2026
+Total: 1h 00m 00s|});
+      ("2026-02-04", {|Tue 04 February 2026 -> Tue 04 February 2026
 
 coding - 2h 00m 00s
 
-Total: 2h 00m 00s|} in
-    let run_command cmd =
-      if String.is_substring cmd ~substring:"2026-02-03" then watson_day1
-      else if String.is_substring cmd ~substring:"2026-02-04" then watson_day2
-      else failwith @@ sprintf "Unexpected command: %s" cmd
+Total: 2h 00m 00s|});
+    ] in
+    let t = start ~watson_output ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:["2026-02-03"; "2026-02-04"])
     in
-    let t = start ~run_command ~watson_output:"" ~config_path (fun () ->
-      Main_logic.run ~config_path ~dates:["2026-02-03"; "2026-02-04"]) in
     [%expect {|
       === 2026-02-03 ===
       Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
@@ -667,7 +677,7 @@ Total: 2h 00m 00s|} in
     finish t
 
 let%expect_test "split by tags creates per-tag decisions" =
-  with_temp_config @@ fun ~config_path ~temp_dir:_ ->
+  with_temp_config @@ fun ~config_path ->
     let config = test_config_with_mappings [] in
     Config.save ~path:config_path config |> Or_error.ok_exn;
     let watson = {|Mon 03 February 2026 -> Mon 03 February 2026
@@ -677,8 +687,9 @@ cr - 51m 02s
 	[FK-3083     12m 37s]
 
 Total: 51m 02s|} in
-    let t = start ~watson_output:watson ~config_path (fun () ->
-      Main_logic.run ~config_path ~dates:["2026-02-03"]) in
+    let t = start ~watson_output:[(test_date, watson)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
     [%expect {|
       Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
 
@@ -727,7 +738,7 @@ Total: 51m 02s|} in
     finish t
 
 let%expect_test "split with tag skip" =
-  with_temp_config @@ fun ~config_path ~temp_dir:_ ->
+  with_temp_config @@ fun ~config_path ->
     let config = test_config_with_mappings [] in
     Config.save ~path:config_path config |> Or_error.ok_exn;
     let watson = {|Mon 03 February 2026 -> Mon 03 February 2026
@@ -737,8 +748,9 @@ cr - 51m 02s
 	[review     12m 37s]
 
 Total: 51m 02s|} in
-    let t = start ~watson_output:watson ~config_path (fun () ->
-      Main_logic.run ~config_path ~dates:["2026-02-03"]) in
+    let t = start ~watson_output:[(test_date, watson)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
     [%expect {|
       Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
 

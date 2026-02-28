@@ -281,7 +281,10 @@ let run_day ~config_path:_ ~config ~date =
   (* Parse watson report *)
   let watson_cmd = sprintf "watson report -G -f %s -t %s" date date in
   let watson_output = Io.run_command watson_cmd in
-  let report = Watson.parse watson_output |> Or_error.ok_exn in
+  let report = match Watson.parse watson_output with
+    | Ok report -> report
+    | Error err -> failwith @@ sprintf "Could not parse Watson output: %s" @@ Error.to_string_hum err
+  in
 
   Io.output @@ sprintf "Report: %s (%d entries)\n"
     report.date_range (List.length report.entries);
