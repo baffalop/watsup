@@ -126,9 +126,9 @@ let%expect_test "process_entry auto_extract" =
     Watson.project = "cr";
     total = Duration.of_hms ~hours:1 ~mins:0 ~secs:0;
     tags = [
-      { Watson.name = "FK-123"; duration = Duration.of_hms ~hours:0 ~mins:30 ~secs:0 };
+      { Watson.name = "DEV-123"; duration = Duration.of_hms ~hours:0 ~mins:30 ~secs:0 };
       { Watson.name = "review"; duration = Duration.of_hms ~hours:0 ~mins:15 ~secs:0 };
-      { Watson.name = "FK-456"; duration = Duration.of_hms ~hours:0 ~mins:15 ~secs:0 };
+      { Watson.name = "DEV-456"; duration = Duration.of_hms ~hours:0 ~mins:15 ~secs:0 };
     ];
   } in
   let decisions, _ = process_entry
@@ -137,8 +137,8 @@ let%expect_test "process_entry auto_extract" =
     ~prompt:(fun _ -> failwith "should not prompt") () in
   print_s [%sexp (decisions : decision list)];
   [%expect {|
-    ((Post (ticket FK-123) (duration 1800) (source cr:FK-123) (description ""))
-     (Post (ticket FK-456) (duration 900) (source cr:FK-456) (description "")))
+    ((Post (ticket DEV-123) (duration 1800) (source cr:DEV-123) (description ""))
+     (Post (ticket DEV-456) (duration 900) (source cr:DEV-456) (description "")))
     |}]
 
 let%expect_test "process_entry skip_once response" =
@@ -192,8 +192,8 @@ let%expect_test "process_entry split assigns per-tag" =
     Watson.project = "cr";
     total = Duration.of_hms ~hours:1 ~mins:0 ~secs:0;
     tags = [
-      { Watson.name = "FK-3080"; duration = Duration.of_hms ~hours:0 ~mins:35 ~secs:0 };
-      { Watson.name = "FK-3083"; duration = Duration.of_hms ~hours:0 ~mins:15 ~secs:0 };
+      { Watson.name = "DEV-101"; duration = Duration.of_hms ~hours:0 ~mins:35 ~secs:0 };
+      { Watson.name = "DEV-202"; duration = Duration.of_hms ~hours:0 ~mins:15 ~secs:0 };
     ];
   } in
   let decisions, mapping = process_entry
@@ -204,8 +204,8 @@ let%expect_test "process_entry split assigns per-tag" =
     () in
   print_s [%sexp (decisions : decision list)];
   [%expect {|
-    ((Post (ticket FK-3080) (duration 2100) (source cr:FK-3080) (description ""))
-     (Post (ticket FK-3083) (duration 900) (source cr:FK-3083) (description "")))
+    ((Post (ticket DEV-101) (duration 2100) (source cr:DEV-101) (description ""))
+     (Post (ticket DEV-202) (duration 900) (source cr:DEV-202) (description "")))
     |}];
   (* All tags are ticket patterns, so cache as Auto_extract *)
   print_s [%sexp (mapping : Config.mapping option)];
@@ -216,7 +216,7 @@ let%expect_test "process_entry split with mixed tags" =
     Watson.project = "cr";
     total = Duration.of_hms ~hours:1 ~mins:0 ~secs:0;
     tags = [
-      { Watson.name = "FK-3080"; duration = Duration.of_hms ~hours:0 ~mins:35 ~secs:0 };
+      { Watson.name = "DEV-101"; duration = Duration.of_hms ~hours:0 ~mins:35 ~secs:0 };
       { Watson.name = "review"; duration = Duration.of_hms ~hours:0 ~mins:15 ~secs:0 };
     ];
   } in
@@ -229,7 +229,7 @@ let%expect_test "process_entry split with mixed tags" =
       else Tag_accept tag.name)
     () in
   print_s [%sexp (decisions : decision list)];
-  [%expect {| ((Post (ticket FK-3080) (duration 2100) (source cr:FK-3080) (description ""))) |}];
+  [%expect {| ((Post (ticket DEV-101) (duration 2100) (source cr:DEV-101) (description ""))) |}];
   (* Not all tags are ticket patterns, so no cache *)
   print_s [%sexp (mapping : Config.mapping option)];
   [%expect {| () |}]

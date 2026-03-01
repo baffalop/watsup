@@ -14,8 +14,8 @@ breaks - 1h 20m 39s
 	[lunch     59m 44s]
 
 cr - 51m 02s
-	[FK-3080     33m 35s]
-	[FK-3083     12m 37s]
+	[DEV-101     33m 35s]
+	[DEV-202     12m 37s]
 
 Total: 2h 37m 27s|}
 
@@ -106,8 +106,8 @@ let%expect_test "interactive flow prompts for unmapped entries" =
     input t "S";
     [%expect {|
       cr - 50m
-        [FK-3080  35m]
-        [FK-3083  10m]
+        [DEV-101  35m]
+        [DEV-202  10m]
         [ticket] assign all | [s] split by tags | [n] skip | [S] skip always:
       |}];
     input t "n";
@@ -152,7 +152,7 @@ let%expect_test "uses cached mappings with auto_extract" =
       |}];
     input t "1";
     [%expect {|
-      FK-3080 category:
+      DEV-101 category:
         1. Development
         2. Meeting
         3. Support
@@ -160,7 +160,7 @@ let%expect_test "uses cached mappings with auto_extract" =
       |}];
     input t "1";
     [%expect {|
-      FK-3083 category:
+      DEV-202 category:
         1. Development
         2. Meeting
         3. Support
@@ -170,14 +170,14 @@ let%expect_test "uses cached mappings with auto_extract" =
     [%expect {|
       === Summary ===
       POST: ARCH-1 (25m) [Development] from architecture
-      POST: FK-3080 (35m) [Development] from cr:FK-3080
-      POST: FK-3083 (10m) [Development] from cr:FK-3083
+      POST: DEV-101 (35m) [Development] from cr:DEV-101
+      POST: DEV-202 (10m) [Development] from cr:DEV-202
       SKIP: breaks (1h 20m)
 
       === Worklogs to Post ===
         ARCH-1: 25m
-        FK-3080: 35m
-        FK-3083: 10m
+        DEV-101: 35m
+        DEV-202: 10m
       [Enter] post | [n] skip day:
       |}];
     input t "n";
@@ -683,8 +683,8 @@ let%expect_test "split by tags creates per-tag decisions" =
     let watson = {|Mon 03 February 2026 -> Mon 03 February 2026
 
 cr - 51m 02s
-	[FK-3080     33m 35s]
-	[FK-3083     12m 37s]
+	[DEV-101     33m 35s]
+	[DEV-202     12m 37s]
 
 Total: 51m 02s|} in
     let t = start ~watson_output:[(test_date, watson)] ~config_path (fun () ->
@@ -694,21 +694,21 @@ Total: 51m 02s|} in
       Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
 
       cr - 50m
-        [FK-3080  35m]
-        [FK-3083  10m]
+        [DEV-101  35m]
+        [DEV-202  10m]
         [ticket] assign all | [s] split by tags | [n] skip | [S] skip always:
       |}];
     input t "s";
-    [%expect {| [FK-3080  35m] [ticket] assign | [n] skip: |}];
+    [%expect {| [DEV-101  35m] [ticket] assign | [n] skip: |}];
     input t "";
-    [%expect {| Description for FK-3080 (optional): |}];
+    [%expect {| Description for DEV-101 (optional): |}];
     input t "review work";
-    [%expect {| [FK-3083  10m] [ticket] assign | [n] skip: |}];
+    [%expect {| [DEV-202  10m] [ticket] assign | [n] skip: |}];
     input t "";
-    [%expect {| Description for FK-3083 (optional): |}];
+    [%expect {| Description for DEV-202 (optional): |}];
     input t "";
     [%expect {|
-      FK-3080 category:
+      DEV-101 category:
         1. Development
         2. Meeting
         3. Support
@@ -716,7 +716,7 @@ Total: 51m 02s|} in
       |}];
     input t "1";
     [%expect {|
-      FK-3083 category:
+      DEV-202 category:
         1. Development
         2. Meeting
         3. Support
@@ -725,12 +725,12 @@ Total: 51m 02s|} in
     input t "1";
     [%expect {|
       === Summary ===
-      POST: FK-3080 (35m) [Development] from cr:FK-3080
-      POST: FK-3083 (10m) [Development] from cr:FK-3083
+      POST: DEV-101 (35m) [Development] from cr:DEV-101
+      POST: DEV-202 (10m) [Development] from cr:DEV-202
 
       === Worklogs to Post ===
-        FK-3080: 35m - review work
-        FK-3083: 10m
+        DEV-101: 35m - review work
+        DEV-202: 10m
       [Enter] post | [n] skip day:
       |}];
     input t "n";
@@ -744,7 +744,7 @@ let%expect_test "split with tag skip" =
     let watson = {|Mon 03 February 2026 -> Mon 03 February 2026
 
 cr - 51m 02s
-	[FK-3080     33m 35s]
+	[DEV-101     33m 35s]
 	[review     12m 37s]
 
 Total: 51m 02s|} in
@@ -755,19 +755,19 @@ Total: 51m 02s|} in
       Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
 
       cr - 50m
-        [FK-3080  35m]
+        [DEV-101  35m]
         [review   10m]
         [ticket] assign all | [s] split by tags | [n] skip | [S] skip always:
       |}];
     input t "s";
-    [%expect {| [FK-3080  35m] [ticket] assign | [n] skip: |}];
+    [%expect {| [DEV-101  35m] [ticket] assign | [n] skip: |}];
     input t "";
-    [%expect {| Description for FK-3080 (optional): |}];
+    [%expect {| Description for DEV-101 (optional): |}];
     input t "";
     [%expect {| [review   10m] [ticket] assign | [n] skip: |}];
     input t "n";
     [%expect {|
-      FK-3080 category:
+      DEV-101 category:
         1. Development
         2. Meeting
         3. Support
@@ -776,10 +776,10 @@ Total: 51m 02s|} in
     input t "1";
     [%expect {|
       === Summary ===
-      POST: FK-3080 (35m) [Development] from cr:FK-3080
+      POST: DEV-101 (35m) [Development] from cr:DEV-101
 
       === Worklogs to Post ===
-        FK-3080: 35m
+        DEV-101: 35m
       [Enter] post | [n] skip day:
       |}];
     input t "n";

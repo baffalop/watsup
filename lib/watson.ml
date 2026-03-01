@@ -66,8 +66,8 @@ let%expect_test "parse tag line" =
   in
   test "\t[setup  1h 29m 04s]";
   [%expect {| ((name setup) (duration 5344)) |}];
-  test "\t[FK-3080     33m 35s]";
-  [%expect {| ((name FK-3080) (duration 2015)) |}]
+  test "\t[DEV-101     33m 35s]";
+  [%expect {| ((name DEV-101) (duration 2015)) |}]
 
 let project_name =
   let word = take_while1 (fun c -> (not (Char.is_whitespace c)) && not (Char.equal c '-')) in
@@ -149,8 +149,8 @@ breaks - 1h 20m 39s
 	[lunch     59m 44s]
 
 cr - 51m 02s
-	[FK-3080     33m 35s]
-	[FK-3083     12m 37s]
+	[DEV-101     33m 35s]
+	[DEV-202     12m 37s]
 
 Total: 2h 37m 27s|}
   in
