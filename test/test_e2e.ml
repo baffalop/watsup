@@ -73,6 +73,92 @@ let test_config_with_mappings mappings = {
 
 open Io.Mocked
 
+let%expect_test "first-run: credentials, setup, and posting" =
+  with_temp_config @@ fun ~config_path ->
+    let watson = {|Mon 03 February 2026 -> Mon 03 February 2026
+
+coding - 1h 00m 00s
+
+Total: 1h 00m 00s|} in
+    let t = start ~watson_output:[(test_date, watson)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
+    (* Tempo token *)
+    [%expect {| Enter Tempo API token: |}];
+    input t "test-tempo-token";
+    (* Jira subdomain *)
+    [%expect {| Enter Jira subdomain (e.g., 'company' for company.atlassian.net): |}];
+    input t "mycompany";
+    (* Jira email *)
+    [%expect {| Enter Jira email: |}];
+    input t "user@example.com";
+    (* Jira API token *)
+    [%expect {| Enter Jira API token (https://id.atlassian.com/manage-profile/security/api-tokens): |}];
+    input t "test-jira-token";
+    (* Fetches account ID via GET *)
+    [%expect {| Fetching Jira account ID... |}];
+    http_get t { Io.status = 200; body = {|{"accountId": "acc-id-999"}|} };
+    (* Fetches work attribute keys via GET *)
+    [%expect {| OK (acc-id-999) |}];
+    http_get t { Io.status = 200; body = {|{"results": [
+      {"name": "Account", "key": "_Account_"},
+      {"name": "Category", "key": "_Category_"}
+    ]}|} };
+    (* Fetches category options via GET *)
+    [%expect {||}];
+    http_get t { Io.status = 200; body = {|{
+      "names": {"dev": "Development", "met": "Meeting"},
+      "values": ["dev", "met"]
+    }|} };
+    (* Now watson report is processed, entry prompt *)
+    [%expect {|
+      Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
+
+      coding - 1h
+        [ticket] assign | [n] skip | [S] skip always:
+      |}];
+    input t "PROJ-123";
+    [%expect {| Description for PROJ-123 (optional): |}];
+    input t "first run work";
+    (* Category prompt *)
+    [%expect {|
+      PROJ-123 category:
+        1. Development
+        2. Meeting
+      >
+      |}];
+    input t "1";
+    (* Summary + confirmation *)
+    [%expect {|
+      === Summary ===
+      POST: PROJ-123 (1h) [Development] from coding
+
+      === Worklogs to Post ===
+        PROJ-123: 1h - first run work
+      [Enter] post | [n] skip day:
+      |}];
+    input t "";
+    (* Posting — needs issue lookup since no cached issue_ids *)
+    [%expect {|
+      === Posting ===
+        Looking up PROJ-123...
+      |}];
+    http_get t { Io.status = 200; body = {|{
+      "id": "67890",
+      "names": {"customfield_10201": "Account"},
+      "fields": {"customfield_10201": {"id": 273, "value": "Operations"}}
+    }|} };
+    [%expect {||}];
+    http_get t { Io.status = 200; body = {|{"key": "ACCT-1", "name": "Operations"}|} };
+    [%expect {| OK (id=67890, account=ACCT-1) |}];
+    http_post t { Io.status = 200; body = {|{"id": 999}|} };
+    [%expect {|
+      PROJ-123: OK
+
+      Posted 1/1 worklogs
+      |}];
+    finish t
+
 let%expect_test "interactive flow prompts for unmapped entries" =
   with_temp_config @@ fun ~config_path ->
     let config = test_config_with_mappings [] in
