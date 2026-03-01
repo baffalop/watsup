@@ -242,6 +242,152 @@ Total: 2h 45m 00s|} in
     [%expect {||}];
     finish t2
 
+let%expect_test "comprehensive interactive flow" =
+  with_temp_config @@ fun ~config_path ->
+    let config = test_config_with_mappings [] in
+    Config.save ~path:config_path config |> Or_error.ok_exn;
+    let t = start ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
+    (* architecture: assign ticket *)
+    [%expect {|
+      Report: Tue 03 February 2026 -> Tue 03 February 2026 (3 entries)
+
+      architecture - 25m
+        [ticket] assign | [n] skip | [S] skip always:
+      |}];
+    input t "ARCH-1";
+    [%expect {| Description for ARCH-1 (optional): |}];
+    input t "arch work";
+    [%expect {|
+      ARCH-1 category:
+        1. Development
+        2. Meeting
+        3. Support
+      >
+      |}];
+    input t "1";
+    (* breaks: skip once *)
+    [%expect {|
+      breaks - 1h 20m
+        [coffee   20m]
+        [lunch    1h]
+        [ticket] assign all | [s] split by tags | [n] skip | [S] skip always:
+      |}];
+    input t "n";
+    (* cr: split by tags *)
+    [%expect {|
+      cr - 50m
+        [DEV-101  35m]
+        [DEV-202  10m]
+        [ticket] assign all | [s] split by tags | [n] skip | [S] skip always:
+      |}];
+    input t "s";
+    (* DEV-101 tag: accept default (ticket pattern, Enter auto-accepts) *)
+    [%expect {| [DEV-101  35m] [ticket] assign | [n] skip: |}];
+    input t "";
+    [%expect {| Description for DEV-101 (optional): |}];
+    input t "review work";
+    (* DEV-202 tag: accept default *)
+    [%expect {| [DEV-202  10m] [ticket] assign | [n] skip: |}];
+    input t "";
+    [%expect {| Description for DEV-202 (optional): |}];
+    input t "";
+    (* Category for DEV-101 *)
+    [%expect {|
+      DEV-101 category:
+        1. Development
+        2. Meeting
+        3. Support
+      >
+      |}];
+    input t "1";
+    (* Category for DEV-202 *)
+    [%expect {|
+      DEV-202 category:
+        1. Development
+        2. Meeting
+        3. Support
+      >
+      |}];
+    input t "2";
+    (* Summary + skip *)
+    [%expect {|
+      === Summary ===
+      POST: ARCH-1 (25m) [Development] from architecture
+      POST: DEV-101 (35m) [Development] from cr:DEV-101
+      POST: DEV-202 (10m) [Meeting] from cr:DEV-202
+
+      === Worklogs to Post ===
+        ARCH-1: 25m - arch work
+        DEV-101: 35m - review work
+        DEV-202: 10m
+      [Enter] post | [n] skip day:
+      |}];
+    input t "n";
+    [%expect {||}];
+    finish t
+
+let%expect_test "cached mappings with auto_extract and ticket" =
+  with_temp_config @@ fun ~config_path ->
+    let config = {
+      (test_config_with_mappings [
+        ("architecture", Config.Ticket "ARCH-1");
+        ("breaks", Config.Skip);
+        ("cr", Config.Auto_extract);
+      ]) with
+      tempo_token = "existing-token-xyz";
+    } in
+    Config.save ~path:config_path config |> Or_error.ok_exn;
+    let t = start ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
+    [%expect {|
+      Report: Tue 03 February 2026 -> Tue 03 February 2026 (3 entries)
+        Description for ARCH-1 (optional):
+      |}];
+    input t "";
+    [%expect {|
+      ARCH-1 category:
+        1. Development
+        2. Meeting
+        3. Support
+      >
+      |}];
+    input t "1";
+    [%expect {|
+      DEV-101 category:
+        1. Development
+        2. Meeting
+        3. Support
+      >
+      |}];
+    input t "1";
+    [%expect {|
+      DEV-202 category:
+        1. Development
+        2. Meeting
+        3. Support
+      >
+      |}];
+    input t "1";
+    [%expect {|
+      === Summary ===
+      POST: ARCH-1 (25m) [Development] from architecture
+      POST: DEV-101 (35m) [Development] from cr:DEV-101
+      POST: DEV-202 (10m) [Development] from cr:DEV-202
+      SKIP: breaks (1h 20m)
+
+      === Worklogs to Post ===
+        ARCH-1: 25m
+        DEV-101: 35m
+        DEV-202: 10m
+      [Enter] post | [n] skip day:
+      |}];
+    input t "n";
+    [%expect {||}];
+    finish t
+
 let%expect_test "interactive flow prompts for unmapped entries" =
   with_temp_config @@ fun ~config_path ->
     let config = test_config_with_mappings [] in
