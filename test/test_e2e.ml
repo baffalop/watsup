@@ -159,6 +159,89 @@ Total: 1h 00m 00s|} in
       |}];
     finish t
 
+let%expect_test "config round-trip: mappings persist across separate runs" =
+  with_temp_config @@ fun ~config_path ->
+    let config = test_config_with_mappings [] in
+    Config.save ~path:config_path config |> Or_error.ok_exn;
+    let watson_day1 = {|Mon 03 February 2026 -> Mon 03 February 2026
+
+coding - 1h 00m 00s
+
+breaks - 30m 00s
+
+Total: 1h 30m 00s|} in
+    let watson_day2 = {|Tue 04 February 2026 -> Tue 04 February 2026
+
+coding - 2h 00m 00s
+
+breaks - 45m 00s
+
+Total: 2h 45m 00s|} in
+    (* Run 1: assign coding -> PROJ-123, skip-always breaks *)
+    let t1 = start ~watson_output:[("2026-02-03", watson_day1)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:["2026-02-03"])
+    in
+    [%expect {|
+      Report: Mon 03 February 2026 -> Mon 03 February 2026 (2 entries)
+
+      coding - 1h
+        [ticket] assign | [n] skip | [S] skip always:
+      |}];
+    input t1 "PROJ-123";
+    [%expect {| Description for PROJ-123 (optional): |}];
+    input t1 "day one work";
+    [%expect {|
+      PROJ-123 category:
+        1. Development
+        2. Meeting
+        3. Support
+      >
+      |}];
+    input t1 "1";
+    [%expect {|
+      breaks - 30m
+        [ticket] assign | [n] skip | [S] skip always:
+      |}];
+    input t1 "S";
+    [%expect {|
+      === Summary ===
+      POST: PROJ-123 (1h) [Development] from coding
+      SKIP: breaks (30m)
+
+      === Worklogs to Post ===
+        PROJ-123: 1h - day one work
+      [Enter] post | [n] skip day:
+      |}];
+    input t1 "n";
+    [%expect {||}];
+    finish t1;
+    (* Run 2: same config_path, different date — mappings should auto-apply *)
+    let t2 = start ~watson_output:[("2026-02-04", watson_day2)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:["2026-02-04"])
+    in
+    [%expect {|
+      Report: Tue 04 February 2026 -> Tue 04 February 2026 (2 entries)
+        Description for PROJ-123 (optional):
+      |}];
+    input t2 "";
+    [%expect {|
+      PROJ-123 category: Development
+        [Enter] keep | [c] change:
+      |}];
+    input t2 "";
+    [%expect {|
+      === Summary ===
+      POST: PROJ-123 (2h) [Development] from coding
+      SKIP: breaks (45m)
+
+      === Worklogs to Post ===
+        PROJ-123: 2h
+      [Enter] post | [n] skip day:
+      |}];
+    input t2 "n";
+    [%expect {||}];
+    finish t2
+
 let%expect_test "interactive flow prompts for unmapped entries" =
   with_temp_config @@ fun ~config_path ->
     let config = test_config_with_mappings [] in
