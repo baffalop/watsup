@@ -29,20 +29,6 @@ let process_entry ~entry ~cached ~prompt ?(tag_prompt = fun _tag -> Tag_skip) ?(
       source = entry.project;
       description;
     }], None)
-  | Some Config.Auto_extract ->
-    let tickets = List.map entry.tags ~f:(fun t -> t.Watson.name)
-      |> Ticket.extract_tickets in
-    let decisions = List.filter_map tickets ~f:(fun ticket ->
-      match List.find entry.tags ~f:(fun t -> String.equal t.name ticket) with
-      | Some tag -> Some (Post {
-          ticket;
-          duration = Duration.round_5min tag.duration;
-          source = sprintf "%s:%s" entry.project ticket;
-          description = "";
-        })
-      | None -> None)
-    in
-    (decisions, None)
   | None ->
     let response = prompt entry in
     match response with
@@ -71,12 +57,7 @@ let process_entry ~entry ~cached ~prompt ?(tag_prompt = fun _tag -> Tag_skip) ?(
           })
         | Tag_skip -> None)
       in
-      (* If all tags resolved to ticket patterns, cache as Auto_extract *)
-      let all_tickets = List.for_all entry.tags ~f:(fun tag ->
-        Ticket.is_ticket_pattern tag.name) in
-      let mapping = if all_tickets && not (List.is_empty entry.tags)
-        then Some Config.Auto_extract else None in
-      (decisions, mapping)
+      (decisions, None)
 
 let%expect_test "process_entry with cached ticket" =
   let entry = {
@@ -121,26 +102,6 @@ let%expect_test "process_entry prompts when no cache" =
   print_s [%sexp (mapping : Config.mapping option)];
   [%expect {| ((Ticket NEW-456)) |}]
 
-let%expect_test "process_entry auto_extract" =
-  let entry = {
-    Watson.project = "cr";
-    total = Duration.of_hms ~hours:1 ~mins:0 ~secs:0;
-    tags = [
-      { Watson.name = "DEV-123"; duration = Duration.of_hms ~hours:0 ~mins:30 ~secs:0 };
-      { Watson.name = "review"; duration = Duration.of_hms ~hours:0 ~mins:15 ~secs:0 };
-      { Watson.name = "DEV-456"; duration = Duration.of_hms ~hours:0 ~mins:15 ~secs:0 };
-    ];
-  } in
-  let decisions, _ = process_entry
-    ~entry
-    ~cached:(Some Config.Auto_extract)
-    ~prompt:(fun _ -> failwith "should not prompt") () in
-  print_s [%sexp (decisions : decision list)];
-  [%expect {|
-    ((Post (ticket DEV-123) (duration 1800) (source cr:DEV-123) (description ""))
-     (Post (ticket DEV-456) (duration 900) (source cr:DEV-456) (description "")))
-    |}]
-
 let%expect_test "process_entry skip_once response" =
   let entry = {
     Watson.project = "meeting";
@@ -171,22 +132,6 @@ let%expect_test "process_entry skip_always response" =
   print_s [%sexp (mapping : Config.mapping option)];
   [%expect {| (Skip) |}]
 
-let%expect_test "process_entry auto_extract with no ticket tags" =
-  let entry = {
-    Watson.project = "cr";
-    total = Duration.of_hms ~hours:1 ~mins:0 ~secs:0;
-    tags = [
-      { Watson.name = "review"; duration = Duration.of_hms ~hours:0 ~mins:30 ~secs:0 };
-      { Watson.name = "meeting"; duration = Duration.of_hms ~hours:0 ~mins:30 ~secs:0 };
-    ];
-  } in
-  let decisions, _ = process_entry
-    ~entry
-    ~cached:(Some Config.Auto_extract)
-    ~prompt:(fun _ -> failwith "should not prompt") () in
-  print_s [%sexp (decisions : decision list)];
-  [%expect {| () |}]
-
 let%expect_test "process_entry split assigns per-tag" =
   let entry = {
     Watson.project = "cr";
@@ -207,9 +152,9 @@ let%expect_test "process_entry split assigns per-tag" =
     ((Post (ticket DEV-101) (duration 2100) (source cr:DEV-101) (description ""))
      (Post (ticket DEV-202) (duration 900) (source cr:DEV-202) (description "")))
     |}];
-  (* All tags are ticket patterns, so cache as Auto_extract *)
+  (* No entry-level mapping for splits *)
   print_s [%sexp (mapping : Config.mapping option)];
-  [%expect {| (Auto_extract) |}]
+  [%expect {| () |}]
 
 let%expect_test "process_entry split with mixed tags" =
   let entry = {

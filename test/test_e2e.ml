@@ -328,13 +328,12 @@ let%expect_test "comprehensive interactive flow" =
     [%expect {||}];
     finish t
 
-let%expect_test "cached mappings with auto_extract and ticket" =
+let%expect_test "cached mappings: ticket and skip (cr uncached)" =
   with_temp_config @@ fun ~config_path ->
     let config = {
       (test_config_with_mappings [
         ("architecture", Config.Ticket "ARCH-1");
         ("breaks", Config.Skip);
-        ("cr", Config.Auto_extract);
       ]) with
       tempo_token = "existing-token-xyz";
     } in
@@ -355,6 +354,22 @@ let%expect_test "cached mappings with auto_extract and ticket" =
       >
       |}];
     input t "1";
+    (* cr is uncached, so it prompts *)
+    [%expect {|
+      cr - 50m
+        [DEV-101  35m]
+        [DEV-202  10m]
+        [ticket] assign all | [s] split by tags | [n] skip | [S] skip always:
+      |}];
+    input t "s";
+    [%expect {| [DEV-101  35m] [ticket] assign | [n] skip: |}];
+    input t "";
+    [%expect {| Description for DEV-101 (optional): |}];
+    input t "";
+    [%expect {| [DEV-202  10m] [ticket] assign | [n] skip: |}];
+    input t "";
+    [%expect {| Description for DEV-202 (optional): |}];
+    input t "";
     [%expect {|
       DEV-101 category:
         1. Development

@@ -22,7 +22,6 @@ let prompt_entry entry ~cached ~category =
   (match cached with
    | Some (Config.Ticket t) -> printf "  Cached: %s\n" t
    | Some Config.Skip -> printf "  Cached: SKIP\n"
-   | Some Config.Auto_extract -> printf "  Auto-extract mode\n"
    | None -> ());
   printf
     "  [Enter] accept | [ticket] override | [s]plit | [n]skip | [S]kip always\n";
