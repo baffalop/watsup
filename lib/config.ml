@@ -3,8 +3,14 @@ open Core
 type mapping =
   | Ticket of string
   | Skip
-  | Auto_extract
 [@@deriving sexp]
+
+(* Backwards compat: old configs may contain Auto_extract — treat as no mapping.
+   This shadow must appear BEFORE the type t definition so t_of_sexp picks it up. *)
+let mapping_of_sexp sexp =
+  match sexp with
+  | Sexp.Atom "Auto_extract" -> Skip
+  | _ -> mapping_of_sexp sexp
 
 type category_cache = {
   options : Category.t list;

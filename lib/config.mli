@@ -1,7 +1,6 @@
 type mapping =
   | Ticket of string
   | Skip
-  | Auto_extract
 [@@deriving sexp]
 
 type category_cache = {
