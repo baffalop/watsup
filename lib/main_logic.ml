@@ -310,6 +310,18 @@ let run_day ~config_path:_ ~config ~date =
     | Error err -> failwith @@ sprintf "Could not parse Watson output: %s" @@ Error.to_string_hum err
   in
 
+  let run_uncached cfg entry =
+    let decisions, new_mapping = Processor.process_entry
+      ~entry ~cached:None
+      ~prompt:prompt_uncached_entry
+      ~tag_prompt:(prompt_uncached_tag ~project:entry.Watson.project)
+      ~describe:prompt_description
+      () in
+    let cfg = Option.value_map new_mapping ~default:cfg
+      ~f:(fun m -> Config.set_mapping cfg entry.project m) in
+    (decisions, cfg, false)
+  in
+
   (* Process each entry *)
   let all_decisions, config =
     List.fold report.entries ~init:([], config) ~f:(fun (acc_decisions, cfg) entry ->
@@ -338,16 +350,7 @@ let run_day ~config_path:_ ~config ~date =
              }] in
              let cfg = Config.set_mapping cfg entry.project (Config.Ticket ticket) in
              (decisions, cfg, false)
-           | Change_ticket ->
-             let decisions, new_mapping = Processor.process_entry
-               ~entry ~cached:None
-               ~prompt:prompt_uncached_entry
-               ~tag_prompt:(prompt_uncached_tag ~project:entry.project)
-               ~describe:prompt_description
-               () in
-             let cfg = Option.value_map new_mapping ~default:cfg
-               ~f:(fun m -> Config.set_mapping cfg entry.project m) in
-             (decisions, cfg, false)
+           | Change_ticket -> run_uncached cfg entry
            | Change_category ->
              let description = prompt_description ticket in
              let decisions = [Processor.Post {
@@ -360,31 +363,13 @@ let run_day ~config_path:_ ~config ~date =
         | Some Config.Skip ->
           let response = prompt_cached_skip () in
           (match response with
-           | Change_ticket ->
-             let decisions, new_mapping = Processor.process_entry
-               ~entry ~cached:None
-               ~prompt:prompt_uncached_entry
-               ~tag_prompt:(prompt_uncached_tag ~project:entry.project)
-               ~describe:prompt_description
-               () in
-             let cfg = Option.value_map new_mapping ~default:cfg
-               ~f:(fun m -> Config.set_mapping cfg entry.project m) in
-             (decisions, cfg, false)
-           | Keep | _ ->
+           | Change_ticket -> run_uncached cfg entry
+           | Keep | Change_category | Skip_once ->
              let decisions = [Processor.Skip {
                project = entry.project; duration = entry.total;
              }] in
              (decisions, cfg, false))
-        | None ->
-          let decisions, new_mapping = Processor.process_entry
-            ~entry ~cached:None
-            ~prompt:prompt_uncached_entry
-            ~tag_prompt:(prompt_uncached_tag ~project:entry.project)
-            ~describe:prompt_description
-            () in
-          let cfg = Option.value_map new_mapping ~default:cfg
-            ~f:(fun m -> Config.set_mapping cfg entry.project m) in
-          (decisions, cfg, false)
+        | None -> run_uncached cfg entry
       in
 
       (* Category prompting for each Post decision *)
