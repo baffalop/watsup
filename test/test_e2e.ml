@@ -215,11 +215,24 @@ Total: 2h 45m 00s|} in
     let t2 = start ~watson_output:[("2026-02-04", watson_day2)] ~config_path (fun () ->
       Main_logic.run ~config_path ~dates:["2026-02-04"])
     in
+    (* coding: cached ticket prompt *)
+    [%expect {|
+      coding - 2h  [-> PROJ-123]
+        [Enter] keep | [t] ticket | [c] category | [n] skip:
+      |}];
+    input t2 "";
     [%expect {| Description for PROJ-123 (optional): |}];
     input t2 "";
+    (* Category: cached from run 1 *)
     [%expect {|
       PROJ-123 category: Development
         [Enter] keep | [c] change:
+      |}];
+    input t2 "";
+    (* breaks: cached skip prompt *)
+    [%expect {|
+      breaks - 45m  [skip]
+        [Enter] keep | [t] assign ticket:
       |}];
     input t2 "";
     [%expect {|
@@ -263,6 +276,7 @@ let%expect_test "comprehensive interactive flow" =
       breaks - 1h 20m
         [coffee   20m]
         [lunch    1h]
+
         [ticket] assign all | [s] split by tags | [n] skip | [S] skip always:
       |}];
     input t "n";
@@ -271,6 +285,7 @@ let%expect_test "comprehensive interactive flow" =
       cr - 50m
         [DEV-101  35m]
         [DEV-202  10m]
+
         [ticket] assign all | [s] split by tags | [n] skip | [S] skip always:
       |}];
     input t "s";
@@ -332,6 +347,12 @@ let%expect_test "cached mappings: ticket and skip (cr uncached)" =
     let t = start ~config_path (fun () ->
       Main_logic.run ~config_path ~dates:[test_date])
     in
+    (* architecture: cached ticket prompt *)
+    [%expect {|
+      architecture - 25m  [-> ARCH-1]
+        [Enter] keep | [t] ticket | [c] category | [n] skip:
+      |}];
+    input t "";
     [%expect {| Description for ARCH-1 (optional): |}];
     input t "";
     [%expect {|
@@ -342,11 +363,21 @@ let%expect_test "cached mappings: ticket and skip (cr uncached)" =
       >
       |}];
     input t "1";
+    (* breaks: cached skip prompt *)
+    [%expect {|
+      breaks - 1h 20m
+        [coffee   20m]
+        [lunch    1h]
+        [skip]
+        [Enter] keep | [t] assign ticket:
+      |}];
+    input t "";
     (* cr is uncached, so it prompts *)
     [%expect {|
       cr - 50m
         [DEV-101  35m]
         [DEV-202  10m]
+
         [ticket] assign all | [s] split by tags | [n] skip | [S] skip always:
       |}];
     input t "s";
@@ -412,6 +443,12 @@ Total: 1h 30m 00s|} in
     let t = start ~watson_output:[(test_date, watson)] ~config_path (fun () ->
       Main_logic.run ~config_path ~dates:[test_date])
     in
+    (* coding: cached ticket prompt *)
+    [%expect {|
+      coding - 1h  [-> PROJ-123]
+        [Enter] keep | [t] ticket | [c] category | [n] skip:
+      |}];
+    input t "";
     (* Description for PROJ-123 *)
     [%expect {| Description for PROJ-123 (optional): |}];
     input t "test work";
@@ -423,6 +460,12 @@ Total: 1h 30m 00s|} in
       >
       |}];
     input t "1";
+    (* review: cached ticket prompt *)
+    [%expect {|
+      review - 30m  [-> PROJ-456]
+        [Enter] keep | [t] ticket | [c] category | [n] skip:
+      |}];
+    input t "";
     (* Description for PROJ-456 *)
     [%expect {| Description for PROJ-456 (optional): |}];
     input t "";
@@ -494,6 +537,12 @@ Total: 1h 30m 00s|} in
     let t = start ~watson_output:[(test_date, watson)] ~config_path (fun () ->
       Main_logic.run ~config_path ~dates:[test_date])
     in
+    (* coding: cached ticket prompt *)
+    [%expect {|
+      coding - 1h  [-> PROJ-123]
+        [Enter] keep | [t] ticket | [c] category | [n] skip:
+      |}];
+    input t "";
     (* PROJ-123: description *)
     [%expect {| Description for PROJ-123 (optional): |}];
     input t "";
@@ -506,6 +555,12 @@ Total: 1h 30m 00s|} in
       >
       |}];
     input t "2";
+    (* review: cached ticket prompt *)
+    [%expect {|
+      review - 30m  [-> PROJ-456]
+        [Enter] keep | [t] ticket | [c] category | [n] skip:
+      |}];
+    input t "";
     (* PROJ-456: description *)
     [%expect {| Description for PROJ-456 (optional): |}];
     input t "";
@@ -560,13 +615,18 @@ Total: 2h 00m 00s|});
     let t = start ~watson_output ~config_path (fun () ->
       Main_logic.run ~config_path ~dates:["2026-02-03"; "2026-02-04"])
     in
-    (* Day 1: description *)
+    (* Day 1: cached ticket prompt *)
     [%expect {|
       === 2026-02-03 ===
-        Description for PROJ-123 (optional):
+
+      coding - 1h  [-> PROJ-123]
+        [Enter] keep | [t] ticket | [c] category | [n] skip:
       |}];
     input t "";
-    (* Day 1: category *)
+    (* Day 1: description *)
+    [%expect {| Description for PROJ-123 (optional): |}];
+    input t "";
+    (* Day 1: category (no cached category yet) *)
     [%expect {|
       PROJ-123 category:
         1. Development
@@ -585,11 +645,16 @@ Total: 2h 00m 00s|});
       [Enter] post | [n] skip day:
       |}];
     input t "n";
-    (* Day 2: description *)
+    (* Day 2: cached ticket prompt *)
     [%expect {|
       === 2026-02-04 ===
-        Description for PROJ-123 (optional):
+
+      coding - 2h  [-> PROJ-123]
+        [Enter] keep | [t] ticket | [c] category | [n] skip:
       |}];
+    input t "";
+    (* Day 2: description *)
+    [%expect {| Description for PROJ-123 (optional): |}];
     input t "";
     (* Day 2: category (cached from day 1) *)
     [%expect {|
@@ -637,6 +702,7 @@ Total: 1h 20m 02s|} in
         [DEV-101  35m]
         [review   10m]
         [DEV-202  35m]
+
         [ticket] assign all | [s] split by tags | [n] skip | [S] skip always:
       |}];
     input t "s";
@@ -726,5 +792,137 @@ let%expect_test "handles empty watson report" =
       Main_logic.run ~config_path ~dates:[test_date])
     in
     [%expect {| === Summary === |}];
+    finish t
+
+let%expect_test "cached ticket: keep all" =
+  with_temp_config @@ fun ~config_path ->
+    let config = {
+      (test_config_with_mappings [("coding", Config.Ticket "PROJ-123")]) with
+      category_selections = [("PROJ-123", "dev")];
+    } in
+    Config.save ~path:config_path config |> Or_error.ok_exn;
+    let watson = {|Mon 03 February 2026 -> Mon 03 February 2026
+
+coding - 1h 00m 00s
+
+Total: 1h 00m 00s|} in
+    let t = start ~watson_output:[(test_date, watson)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
+    (* Context + cached prompt: user keeps *)
+    [%expect {|
+      coding - 1h  [-> PROJ-123]
+        [Enter] keep | [t] ticket | [c] category | [n] skip:
+      |}];
+    input t "";
+    (* Description prompt *)
+    [%expect {| Description for PROJ-123 (optional): |}];
+    input t "daily work";
+    (* Category: cached, keep *)
+    [%expect {|
+      PROJ-123 category: Development
+        [Enter] keep | [c] change:
+      |}];
+    input t "";
+    (* Summary + skip *)
+    [%expect {|
+      === Summary ===
+      POST: PROJ-123 (1h) [Development] from coding
+
+      === Worklogs to Post ===
+        PROJ-123: 1h - daily work
+      [Enter] post | [n] skip day:
+      |}];
+    input t "n";
+    [%expect {||}];
+    finish t
+
+let%expect_test "auto-detect: project name is ticket pattern" =
+  with_temp_config @@ fun ~config_path ->
+    let config = test_config_with_mappings [] in
+    Config.save ~path:config_path config |> Or_error.ok_exn;
+    let watson = {|Mon 03 February 2026 -> Mon 03 February 2026
+
+DEV-123 - 1h 00m 00s
+
+Total: 1h 00m 00s|} in
+    let t = start ~watson_output:[(test_date, watson)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
+    (* Should auto-detect DEV-123 and show cached prompt *)
+    [%expect {|
+      DEV-123 - 1h  [-> DEV-123]
+        [Enter] keep | [t] ticket | [c] category | [n] skip:
+      |}];
+    input t "";
+    (* Description *)
+    [%expect {| Description for DEV-123 (optional): |}];
+    input t "auto-detected work";
+    (* Category *)
+    [%expect {|
+      DEV-123 category:
+        1. Development
+        2. Meeting
+        3. Support
+      >
+      |}];
+    input t "1";
+    (* Summary + skip *)
+    [%expect {|
+      === Summary ===
+      POST: DEV-123 (1h) [Development] from DEV-123
+
+      === Worklogs to Post ===
+        DEV-123: 1h - auto-detected work
+      [Enter] post | [n] skip day:
+      |}];
+    input t "n";
+    [%expect {||}];
+    finish t
+
+let%expect_test "cached skip: override with ticket" =
+  with_temp_config @@ fun ~config_path ->
+    let config = test_config_with_mappings [("breaks", Config.Skip)] in
+    Config.save ~path:config_path config |> Or_error.ok_exn;
+    let watson = {|Mon 03 February 2026 -> Mon 03 February 2026
+
+breaks - 30m 00s
+
+Total: 30m 00s|} in
+    let t = start ~watson_output:[(test_date, watson)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
+    (* Shows skip prompt, user overrides with [t] *)
+    [%expect {|
+      breaks - 30m  [skip]
+        [Enter] keep | [t] assign ticket:
+      |}];
+    input t "t";
+    (* Now shows uncached prompt *)
+    [%expect {| [ticket] assign | [n] skip | [S] skip always: |}];
+    input t "BREAK-1";
+    (* Description *)
+    [%expect {| Description for BREAK-1 (optional): |}];
+    input t "team lunch";
+    (* Category *)
+    [%expect {|
+      BREAK-1 category:
+        1. Development
+        2. Meeting
+        3. Support
+      >
+      |}];
+    input t "2";
+    (* Summary + skip *)
+    [%expect {|
+      === Summary ===
+      POST: BREAK-1 (30m) [Meeting] from breaks
+
+      === Worklogs to Post ===
+        BREAK-1: 30m - team lunch
+      [Enter] post | [n] skip day:
+      |}];
+    input t "n";
+    [%expect {||}];
     finish t
 

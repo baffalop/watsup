@@ -140,15 +140,39 @@ let fetch_tempo_account_key ~token ~account_id =
   else
     Error (sprintf "Tempo account lookup error (%d): %s" response.status response.body)
 
-let prompt_for_entry entry =
-  Io.output @@ sprintf "\n%s - %s\n"
-    entry.Watson.project
+let show_entry_context entry =
+  let has_tags = not (List.is_empty entry.Watson.tags) in
+  Io.output @@ sprintf "\n%s - %s"
+    entry.project
     (Duration.to_string @@ Duration.round_5min entry.total);
-  let has_tags = not (List.is_empty entry.tags) in
-  if has_tags then
+  if has_tags then begin
+    Io.output "\n";
     List.iter entry.tags ~f:(fun tag ->
       Io.output @@ sprintf "  [%-8s %s]\n" tag.Watson.name
-        (Duration.to_string @@ Duration.round_5min tag.duration));
+        (Duration.to_string @@ Duration.round_5min tag.duration))
+  end
+
+type cached_response = Keep | Change_ticket | Change_category | Skip_once
+
+let prompt_cached_entry ~ticket =
+  Io.output @@ sprintf "  [-> %s]\n" ticket;
+  Io.output "  [Enter] keep | [t] ticket | [c] category | [n] skip: ";
+  match Io.input () with
+  | "t" -> Change_ticket
+  | "c" -> Change_category
+  | "n" -> Skip_once
+  | _ -> Keep
+
+let prompt_cached_skip () =
+  Io.output "  [skip]\n";
+  Io.output "  [Enter] keep | [t] assign ticket: ";
+  match Io.input () with
+  | "t" -> Change_ticket
+  | _ -> Keep
+
+let prompt_uncached_entry entry =
+  Io.output "\n";
+  let has_tags = not (List.is_empty entry.Watson.tags) in
   let prompt_str = if has_tags
     then "  [ticket] assign all | [s] split by tags | [n] skip | [S] skip always: "
     else "  [ticket] assign | [n] skip | [S] skip always: "
@@ -161,7 +185,7 @@ let prompt_for_entry entry =
   | "s" when has_tags -> Processor.Split
   | ticket -> Processor.Accept ticket
 
-let prompt_for_tag ~project:_ tag =
+let prompt_uncached_tag ~project:_ tag =
   Io.output @@ sprintf "  [%-8s %s] [ticket] assign | [n] skip: "
     tag.Watson.name
     (Duration.to_string @@ Duration.round_5min tag.Watson.duration);
@@ -286,28 +310,99 @@ let run_day ~config_path:_ ~config ~date =
     | Error err -> failwith @@ sprintf "Could not parse Watson output: %s" @@ Error.to_string_hum err
   in
 
-  (* Process each entry - using fold for O(n) instead of O(n²) append *)
+  (* Process each entry *)
   let all_decisions, config =
     List.fold report.entries ~init:([], config) ~f:(fun (acc_decisions, cfg) entry ->
+      (* Resolve mapping: check cache, then auto-detect ticket pattern *)
       let cached = Config.get_mapping cfg entry.project in
-      let decisions, new_mapping = Processor.process_entry
-        ~entry ~cached
-        ~prompt:prompt_for_entry
-        ~tag_prompt:(prompt_for_tag ~project:entry.project)
-        ~describe:prompt_description
-        () in
-      let cfg' = Option.value_map new_mapping ~default:cfg
-        ~f:(fun m -> Config.set_mapping cfg entry.project m) in
-      (* Category prompting for each Post decision *)
-      let cfg' = match cfg'.categories with
-        | Some { options; _ } when not (String.is_empty cfg'.tempo_category_attr_key)
-            && not (List.is_empty options) ->
-          List.fold decisions ~init:cfg' ~f:(fun c -> function
-            | Processor.Post { ticket; _ } -> prompt_category ~config:c ~options ticket
-            | Processor.Skip _ -> c)
-        | _ -> cfg'
+      let cached = match cached with
+        | Some _ -> cached
+        | None when Ticket.is_ticket_pattern entry.project ->
+          Some (Config.Ticket entry.project)
+        | None -> None
       in
-      (List.rev_append decisions acc_decisions, cfg'))
+
+      (* Always show entry context *)
+      show_entry_context entry;
+
+      (* Handle cached vs uncached flow *)
+      let decisions, cfg, force_category_change = match cached with
+        | Some (Config.Ticket ticket) ->
+          let response = prompt_cached_entry ~ticket in
+          (match response with
+           | Keep ->
+             let description = prompt_description ticket in
+             let decisions = [Processor.Post {
+               ticket; duration = Duration.round_5min entry.total;
+               source = entry.project; description;
+             }] in
+             let cfg = Config.set_mapping cfg entry.project (Config.Ticket ticket) in
+             (decisions, cfg, false)
+           | Change_ticket ->
+             let decisions, new_mapping = Processor.process_entry
+               ~entry ~cached:None
+               ~prompt:prompt_uncached_entry
+               ~tag_prompt:(prompt_uncached_tag ~project:entry.project)
+               ~describe:prompt_description
+               () in
+             let cfg = Option.value_map new_mapping ~default:cfg
+               ~f:(fun m -> Config.set_mapping cfg entry.project m) in
+             (decisions, cfg, false)
+           | Change_category ->
+             let description = prompt_description ticket in
+             let decisions = [Processor.Post {
+               ticket; duration = Duration.round_5min entry.total;
+               source = entry.project; description;
+             }] in
+             let cfg = Config.set_mapping cfg entry.project (Config.Ticket ticket) in
+             (decisions, cfg, true)
+           | Skip_once -> ([], cfg, false))
+        | Some Config.Skip ->
+          let response = prompt_cached_skip () in
+          (match response with
+           | Change_ticket ->
+             let decisions, new_mapping = Processor.process_entry
+               ~entry ~cached:None
+               ~prompt:prompt_uncached_entry
+               ~tag_prompt:(prompt_uncached_tag ~project:entry.project)
+               ~describe:prompt_description
+               () in
+             let cfg = Option.value_map new_mapping ~default:cfg
+               ~f:(fun m -> Config.set_mapping cfg entry.project m) in
+             (decisions, cfg, false)
+           | Keep | _ ->
+             let decisions = [Processor.Skip {
+               project = entry.project; duration = entry.total;
+             }] in
+             (decisions, cfg, false))
+        | None ->
+          let decisions, new_mapping = Processor.process_entry
+            ~entry ~cached:None
+            ~prompt:prompt_uncached_entry
+            ~tag_prompt:(prompt_uncached_tag ~project:entry.project)
+            ~describe:prompt_description
+            () in
+          let cfg = Option.value_map new_mapping ~default:cfg
+            ~f:(fun m -> Config.set_mapping cfg entry.project m) in
+          (decisions, cfg, false)
+      in
+
+      (* Category prompting for each Post decision *)
+      let cfg = match cfg.categories with
+        | Some { options; _ } when not (String.is_empty cfg.tempo_category_attr_key)
+            && not (List.is_empty options) ->
+          List.fold decisions ~init:cfg ~f:(fun c -> function
+            | Processor.Post { ticket; _ } ->
+              if force_category_change then begin
+                Io.output @@ sprintf "  %s category:\n" ticket;
+                let value = prompt_category_list ~options ~current_value:None in
+                Config.set_category_selection c ticket value
+              end else
+                prompt_category ~config:c ~options ticket
+            | Processor.Skip _ -> c)
+        | _ -> cfg
+      in
+      (List.rev_append decisions acc_decisions, cfg))
   in
   let all_decisions = List.rev all_decisions in
 
