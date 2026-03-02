@@ -195,6 +195,16 @@ let prompt_uncached_tag ~project:_ tag =
   | "" when Ticket.is_ticket_pattern tag.name -> Processor.Tag_accept tag.name
   | ticket -> Processor.Tag_accept ticket
 
+let prompt_cached_tag tag ~ticket =
+  Io.output @@ sprintf "  [%-8s %s] [-> %s] [Enter] keep | [t] change | [n] skip: "
+    tag.Watson.name
+    (Duration.to_string @@ Duration.round_5min tag.Watson.duration)
+    ticket;
+  match Io.input () with
+  | "t" -> Change_ticket
+  | "n" -> Skip_once
+  | _ -> Keep
+
 let prompt_description ticket =
   Io.output @@ sprintf "  Description for %s (optional): " ticket;
   Io.input ()
@@ -369,7 +379,74 @@ let run_day ~config_path:_ ~config ~date =
                project = entry.project; duration = entry.total;
              }] in
              (decisions, cfg, false))
-        | None -> run_uncached cfg entry
+        | None ->
+          Io.output "\n";
+          let has_tags = not (List.is_empty entry.Watson.tags) in
+          let prompt_str = if has_tags
+            then "  [ticket] assign all | [s] split by tags | [n] skip | [S] skip always: "
+            else "  [ticket] assign | [n] skip | [S] skip always: "
+          in
+          Io.output prompt_str;
+          let input = Io.input () in
+          (match input with
+           | "s" when has_tags ->
+             (* Split: handle per-tag with composite keys *)
+             let decisions, cfg = List.fold entry.tags ~init:([], cfg)
+               ~f:(fun (acc, cfg) tag ->
+                 let composite_key = sprintf "%s:%s" entry.project tag.Watson.name in
+                 let tag_cached = Config.get_mapping cfg composite_key in
+                 let tag_cached = match tag_cached with
+                   | Some _ -> tag_cached
+                   | None when Ticket.is_ticket_pattern tag.name ->
+                     Some (Config.Ticket tag.name)
+                   | None -> None
+                 in
+                 match tag_cached with
+                 | Some (Config.Ticket ticket) ->
+                   let response = prompt_cached_tag tag ~ticket in
+                   (match response with
+                    | Keep | Change_category ->
+                      let description = prompt_description ticket in
+                      let cfg = Config.set_mapping cfg composite_key (Config.Ticket ticket) in
+                      (Processor.Post {
+                        ticket; duration = Duration.round_5min tag.Watson.duration;
+                        source = sprintf "%s:%s" entry.project tag.name; description;
+                      } :: acc, cfg)
+                    | Change_ticket ->
+                      (match prompt_uncached_tag ~project:entry.project tag with
+                       | Processor.Tag_accept ticket ->
+                         let description = prompt_description ticket in
+                         let cfg = Config.set_mapping cfg composite_key (Config.Ticket ticket) in
+                         (Processor.Post {
+                           ticket; duration = Duration.round_5min tag.Watson.duration;
+                           source = sprintf "%s:%s" entry.project tag.name; description;
+                         } :: acc, cfg)
+                       | Processor.Tag_skip -> (acc, cfg))
+                    | Skip_once -> (acc, cfg))
+                 | Some Config.Skip -> (acc, cfg)
+                 | None ->
+                   (match prompt_uncached_tag ~project:entry.project tag with
+                    | Processor.Tag_accept ticket ->
+                      let description = prompt_description ticket in
+                      let cfg = Config.set_mapping cfg composite_key (Config.Ticket ticket) in
+                      (Processor.Post {
+                        ticket; duration = Duration.round_5min tag.Watson.duration;
+                        source = sprintf "%s:%s" entry.project tag.name; description;
+                      } :: acc, cfg)
+                    | Processor.Tag_skip -> (acc, cfg)))
+             in
+             (List.rev decisions, cfg, false)
+           | "n" -> ([], cfg, false)
+           | "S" ->
+             let cfg = Config.set_mapping cfg entry.project Config.Skip in
+             ([Processor.Skip { project = entry.project; duration = entry.total }], cfg, false)
+           | ticket ->
+             let description = prompt_description ticket in
+             let cfg = Config.set_mapping cfg entry.project (Config.Ticket ticket) in
+             ([Processor.Post {
+               ticket; duration = Duration.round_5min entry.total;
+               source = entry.project; description;
+             }], cfg, false))
       in
 
       (* Category prompting for each Post decision *)

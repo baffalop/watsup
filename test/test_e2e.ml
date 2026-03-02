@@ -290,12 +290,12 @@ let%expect_test "comprehensive interactive flow" =
       |}];
     input t "s";
     (* DEV-101 tag: accept default (ticket pattern, Enter auto-accepts) *)
-    [%expect {| [DEV-101  35m] [ticket] assign | [n] skip: |}];
+    [%expect {| [DEV-101  35m] [-> DEV-101] [Enter] keep | [t] change | [n] skip: |}];
     input t "";
     [%expect {| Description for DEV-101 (optional): |}];
     input t "review work";
     (* DEV-202 tag: accept default *)
-    [%expect {| [DEV-202  10m] [ticket] assign | [n] skip: |}];
+    [%expect {| [DEV-202  10m] [-> DEV-202] [Enter] keep | [t] change | [n] skip: |}];
     input t "";
     [%expect {| Description for DEV-202 (optional): |}];
     input t "";
@@ -381,11 +381,11 @@ let%expect_test "cached mappings: ticket and skip (cr uncached)" =
         [ticket] assign all | [s] split by tags | [n] skip | [S] skip always:
       |}];
     input t "s";
-    [%expect {| [DEV-101  35m] [ticket] assign | [n] skip: |}];
+    [%expect {| [DEV-101  35m] [-> DEV-101] [Enter] keep | [t] change | [n] skip: |}];
     input t "";
     [%expect {| Description for DEV-101 (optional): |}];
     input t "";
-    [%expect {| [DEV-202  10m] [ticket] assign | [n] skip: |}];
+    [%expect {| [DEV-202  10m] [-> DEV-202] [Enter] keep | [t] change | [n] skip: |}];
     input t "";
     [%expect {| Description for DEV-202 (optional): |}];
     input t "";
@@ -707,7 +707,7 @@ Total: 1h 20m 02s|} in
       |}];
     input t "s";
     (* DEV-101: accept default (ticket pattern, Enter) *)
-    [%expect {| [DEV-101  35m] [ticket] assign | [n] skip: |}];
+    [%expect {| [DEV-101  35m] [-> DEV-101] [Enter] keep | [t] change | [n] skip: |}];
     input t "";
     [%expect {| Description for DEV-101 (optional): |}];
     input t "review of DEV-101";
@@ -717,7 +717,7 @@ Total: 1h 20m 02s|} in
     [%expect {| Description for REVIEW-55 (optional): |}];
     input t "code review";
     (* DEV-202: skip *)
-    [%expect {| [DEV-202  35m] [ticket] assign | [n] skip: |}];
+    [%expect {| [DEV-202  35m] [-> DEV-202] [Enter] keep | [t] change | [n] skip: |}];
     input t "n";
     (* Categories for DEV-101 and REVIEW-55 *)
     [%expect {|
@@ -926,3 +926,49 @@ Total: 30m 00s|} in
     [%expect {||}];
     finish t
 
+let%expect_test "composite key: split tag mapping doesn't apply to standalone project" =
+  with_temp_config @@ fun ~config_path ->
+    (* cr:review mapped to REVIEW-55 from a previous split *)
+    let config = {
+      (test_config_with_mappings [
+        ("cr:review", Config.Ticket "REVIEW-55");
+      ]) with
+      category_selections = [("REVIEW-55", "dev")];
+    } in
+    Config.save ~path:config_path config |> Or_error.ok_exn;
+    (* Day has standalone "review" project — should NOT use cr:review mapping *)
+    let watson = {|Mon 03 February 2026 -> Mon 03 February 2026
+
+review - 1h 00m 00s
+
+Total: 1h 00m 00s|} in
+    let t = start ~watson_output:[(test_date, watson)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
+    (* review should appear as uncached — no composite key match *)
+    [%expect {|
+      review - 1h
+        [ticket] assign | [n] skip | [S] skip always:
+      |}];
+    input t "REVIEW-99";
+    [%expect {| Description for REVIEW-99 (optional): |}];
+    input t "different work";
+    [%expect {|
+      REVIEW-99 category:
+        1. Development
+        2. Meeting
+        3. Support
+      >
+      |}];
+    input t "1";
+    [%expect {|
+      === Summary ===
+      POST: REVIEW-99 (1h) [Development] from review
+
+      === Worklogs to Post ===
+        REVIEW-99: 1h - different work
+      [Enter] post | [n] skip day:
+      |}];
+    input t "n";
+    [%expect {||}];
+    finish t
