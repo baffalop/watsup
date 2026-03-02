@@ -112,8 +112,6 @@ Total: 1h 00m 00s|} in
     }|} };
     (* Now watson report is processed, entry prompt *)
     [%expect {|
-      Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
-
       coding - 1h
         [ticket] assign | [n] skip | [S] skip always:
       |}];
@@ -182,8 +180,6 @@ Total: 2h 45m 00s|} in
       Main_logic.run ~config_path ~dates:["2026-02-03"])
     in
     [%expect {|
-      Report: Mon 03 February 2026 -> Mon 03 February 2026 (2 entries)
-
       coding - 1h
         [ticket] assign | [n] skip | [S] skip always:
       |}];
@@ -219,10 +215,7 @@ Total: 2h 45m 00s|} in
     let t2 = start ~watson_output:[("2026-02-04", watson_day2)] ~config_path (fun () ->
       Main_logic.run ~config_path ~dates:["2026-02-04"])
     in
-    [%expect {|
-      Report: Tue 04 February 2026 -> Tue 04 February 2026 (2 entries)
-        Description for PROJ-123 (optional):
-      |}];
+    [%expect {| Description for PROJ-123 (optional): |}];
     input t2 "";
     [%expect {|
       PROJ-123 category: Development
@@ -251,8 +244,6 @@ let%expect_test "comprehensive interactive flow" =
     in
     (* architecture: assign ticket *)
     [%expect {|
-      Report: Tue 03 February 2026 -> Tue 03 February 2026 (3 entries)
-
       architecture - 25m
         [ticket] assign | [n] skip | [S] skip always:
       |}];
@@ -341,10 +332,7 @@ let%expect_test "cached mappings: ticket and skip (cr uncached)" =
     let t = start ~config_path (fun () ->
       Main_logic.run ~config_path ~dates:[test_date])
     in
-    [%expect {|
-      Report: Tue 03 February 2026 -> Tue 03 February 2026 (3 entries)
-        Description for ARCH-1 (optional):
-      |}];
+    [%expect {| Description for ARCH-1 (optional): |}];
     input t "";
     [%expect {|
       ARCH-1 category:
@@ -425,10 +413,7 @@ Total: 1h 30m 00s|} in
       Main_logic.run ~config_path ~dates:[test_date])
     in
     (* Description for PROJ-123 *)
-    [%expect {|
-      Report: Mon 03 February 2026 -> Mon 03 February 2026 (2 entries)
-        Description for PROJ-123 (optional):
-      |}];
+    [%expect {| Description for PROJ-123 (optional): |}];
     input t "test work";
     [%expect {|
       PROJ-123 category:
@@ -510,10 +495,7 @@ Total: 1h 30m 00s|} in
       Main_logic.run ~config_path ~dates:[test_date])
     in
     (* PROJ-123: description *)
-    [%expect {|
-      Report: Mon 03 February 2026 -> Mon 03 February 2026 (2 entries)
-        Description for PROJ-123 (optional):
-      |}];
+    [%expect {| Description for PROJ-123 (optional): |}];
     input t "";
     (* PROJ-123: no cached category -> fresh prompt *)
     [%expect {|
@@ -581,7 +563,6 @@ Total: 2h 00m 00s|});
     (* Day 1: description *)
     [%expect {|
       === 2026-02-03 ===
-      Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
         Description for PROJ-123 (optional):
       |}];
     input t "";
@@ -607,7 +588,6 @@ Total: 2h 00m 00s|});
     (* Day 2: description *)
     [%expect {|
       === 2026-02-04 ===
-      Report: Tue 04 February 2026 -> Tue 04 February 2026 (1 entries)
         Description for PROJ-123 (optional):
       |}];
     input t "";
@@ -653,8 +633,6 @@ Total: 1h 20m 02s|} in
     in
     (* Entry prompt: split *)
     [%expect {|
-      Report: Mon 03 February 2026 -> Mon 03 February 2026 (1 entries)
-
       cr - 1h 20m
         [DEV-101  35m]
         [review   10m]
@@ -747,10 +725,6 @@ let%expect_test "handles empty watson report" =
     let t = start ~watson_output:[(test_date, empty_watson_report)] ~config_path (fun () ->
       Main_logic.run ~config_path ~dates:[test_date])
     in
-    [%expect {|
-      Report: Mon 03 February 2026 -> Mon 03 February 2026 (0 entries)
-
-      === Summary ===
-      |}];
+    [%expect {| === Summary === |}];
     finish t
 
