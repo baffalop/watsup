@@ -175,6 +175,6 @@ let%expect_test "process_entry split with mixed tags" =
     () in
   print_s [%sexp (decisions : decision list)];
   [%expect {| ((Post (ticket DEV-101) (duration 2100) (source cr:DEV-101) (description ""))) |}];
-  (* Not all tags are ticket patterns, so no cache *)
+  (* No entry-level mapping for splits *)
   print_s [%sexp (mapping : Config.mapping option)];
   [%expect {| () |}]
