@@ -129,10 +129,9 @@ Total: 1h 00m 00s|} in
     (* Summary + confirmation *)
     [%expect {|
       === Summary ===
-      POST: PROJ-123 (1h) [Development] from coding
+      Post:
+        PROJ-123   (1h)  [Development]  coding  "first run work"
 
-      === Worklogs to Post ===
-        PROJ-123: 1h - first run work
       [Enter] post | [n] skip day:
       |}];
     input t "";
@@ -201,11 +200,11 @@ Total: 2h 45m 00s|} in
     input t1 "S";
     [%expect {|
       === Summary ===
-      POST: PROJ-123 (1h) [Development] from coding
-      SKIP: breaks (30m)
+      Post:
+        PROJ-123   (1h)  [Development]  coding  "day one work"
+      Skip:
+        breaks     (30m)
 
-      === Worklogs to Post ===
-        PROJ-123: 1h - day one work
       [Enter] post | [n] skip day:
       |}];
     input t1 "n";
@@ -237,11 +236,11 @@ Total: 2h 45m 00s|} in
     input t2 "";
     [%expect {|
       === Summary ===
-      POST: PROJ-123 (2h) [Development] from coding
-      SKIP: breaks (45m)
+      Post:
+        PROJ-123   (2h)  [Development]  coding
+      Skip:
+        breaks     (45m)
 
-      === Worklogs to Post ===
-        PROJ-123: 2h
       [Enter] post | [n] skip day:
       |}];
     input t2 "n";
@@ -320,14 +319,11 @@ let%expect_test "comprehensive interactive flow" =
     (* Summary + skip *)
     [%expect {|
       === Summary ===
-      POST: ARCH-1 (25m) [Development] from architecture
-      POST: DEV-101 (35m) [Development] from cr:DEV-101
-      POST: DEV-202 (10m) [Meeting] from cr:DEV-202
+      Post:
+        ARCH-1     (25m)  [Development]  architecture  "arch work"
+        DEV-101    (35m)  [Development]  cr:DEV-101  "review work"
+        DEV-202    (10m)  [Meeting]  cr:DEV-202
 
-      === Worklogs to Post ===
-        ARCH-1: 25m - arch work
-        DEV-101: 35m - review work
-        DEV-202: 10m
       [Enter] post | [n] skip day:
       |}];
     input t "n";
@@ -407,15 +403,13 @@ let%expect_test "cached mappings: ticket and skip (cr uncached)" =
     input t "1";
     [%expect {|
       === Summary ===
-      POST: ARCH-1 (25m) [Development] from architecture
-      POST: DEV-101 (35m) [Development] from cr:DEV-101
-      POST: DEV-202 (10m) [Development] from cr:DEV-202
-      SKIP: breaks (1h 20m)
+      Post:
+        ARCH-1     (25m)  [Development]  architecture
+        DEV-101    (35m)  [Development]  cr:DEV-101
+        DEV-202    (10m)  [Development]  cr:DEV-202
+      Skip:
+        breaks     (1h 20m)
 
-      === Worklogs to Post ===
-        ARCH-1: 25m
-        DEV-101: 35m
-        DEV-202: 10m
       [Enter] post | [n] skip day:
       |}];
     input t "n";
@@ -480,12 +474,10 @@ Total: 1h 30m 00s|} in
     (* Summary + confirm *)
     [%expect {|
       === Summary ===
-      POST: PROJ-123 (1h) [Development] from coding
-      POST: PROJ-456 (30m) [Development] from review
+      Post:
+        PROJ-123   (1h)  [Development]  coding  "test work"
+        PROJ-456   (30m)  [Development]  review
 
-      === Worklogs to Post ===
-        PROJ-123: 1h - test work
-        PROJ-456: 30m
       [Enter] post | [n] skip day:
       |}];
     input t "";
@@ -580,12 +572,10 @@ Total: 1h 30m 00s|} in
     (* Summary + skip *)
     [%expect {|
       === Summary ===
-      POST: PROJ-123 (1h) [Meeting] from coding
-      POST: PROJ-456 (30m) [Support] from review
+      Post:
+        PROJ-123   (1h)  [Meeting]  coding
+        PROJ-456   (30m)  [Support]  review
 
-      === Worklogs to Post ===
-        PROJ-123: 1h
-        PROJ-456: 30m
       [Enter] post | [n] skip day:
       |}];
     input t "n";
@@ -638,10 +628,9 @@ Total: 2h 00m 00s|});
     (* Day 1: skip day *)
     [%expect {|
       === Summary ===
-      POST: PROJ-123 (1h) [Development] from coding
+      Post:
+        PROJ-123   (1h)  [Development]  coding
 
-      === Worklogs to Post ===
-        PROJ-123: 1h
       [Enter] post | [n] skip day:
       |}];
     input t "n";
@@ -665,10 +654,9 @@ Total: 2h 00m 00s|});
     (* Day 2: post *)
     [%expect {|
       === Summary ===
-      POST: PROJ-123 (2h) [Development] from coding
+      Post:
+        PROJ-123   (2h)  [Development]  coding
 
-      === Worklogs to Post ===
-        PROJ-123: 2h
       [Enter] post | [n] skip day:
       |}];
     input t "";
@@ -739,12 +727,10 @@ Total: 1h 20m 02s|} in
     (* Summary + skip *)
     [%expect {|
       === Summary ===
-      POST: DEV-101 (35m) [Development] from cr:DEV-101
-      POST: REVIEW-55 (10m) [Meeting] from cr:review
+      Post:
+        DEV-101    (35m)  [Development]  cr:DEV-101  "review of DEV-101"
+        REVIEW-55  (10m)  [Meeting]  cr:review  "code review"
 
-      === Worklogs to Post ===
-        DEV-101: 35m - review of DEV-101
-        REVIEW-55: 10m - code review
       [Enter] post | [n] skip day:
       |}];
     input t "n";
@@ -827,10 +813,9 @@ Total: 1h 00m 00s|} in
     (* Summary + skip *)
     [%expect {|
       === Summary ===
-      POST: PROJ-123 (1h) [Development] from coding
+      Post:
+        PROJ-123   (1h)  [Development]  coding  "daily work"
 
-      === Worklogs to Post ===
-        PROJ-123: 1h - daily work
       [Enter] post | [n] skip day:
       |}];
     input t "n";
@@ -870,10 +855,9 @@ Total: 1h 00m 00s|} in
     (* Summary + skip *)
     [%expect {|
       === Summary ===
-      POST: DEV-123 (1h) [Development] from DEV-123
+      Post:
+        DEV-123    (1h)  [Development]  DEV-123  "auto-detected work"
 
-      === Worklogs to Post ===
-        DEV-123: 1h - auto-detected work
       [Enter] post | [n] skip day:
       |}];
     input t "n";
@@ -916,10 +900,9 @@ Total: 30m 00s|} in
     (* Summary + skip *)
     [%expect {|
       === Summary ===
-      POST: BREAK-1 (30m) [Meeting] from breaks
+      Post:
+        BREAK-1    (30m)  [Meeting]  breaks  "team lunch"
 
-      === Worklogs to Post ===
-        BREAK-1: 30m - team lunch
       [Enter] post | [n] skip day:
       |}];
     input t "n";
@@ -963,10 +946,9 @@ Total: 1h 00m 00s|} in
     input t "1";
     [%expect {|
       === Summary ===
-      POST: REVIEW-99 (1h) [Development] from review
+      Post:
+        REVIEW-99  (1h)  [Development]  review  "different work"
 
-      === Worklogs to Post ===
-        REVIEW-99: 1h - different work
       [Enter] post | [n] skip day:
       |}];
     input t "n";

@@ -468,7 +468,7 @@ let run_day ~config_path:_ ~config ~date =
   in
   let all_decisions = List.rev all_decisions in
 
-  (* Summary *)
+  (* Combined Summary *)
   Io.output "\n=== Summary ===\n";
   let posts, skips = List.partition_tf all_decisions ~f:(function
     | Processor.Post _ -> true
@@ -476,29 +476,31 @@ let run_day ~config_path:_ ~config ~date =
 
   let cat_options = match config.categories with
     | Some { options; _ } -> options | None -> [] in
-  List.iter posts ~f:(function
-    | Processor.Post { ticket; duration; source; _ } ->
-      let cat_str = match resolve_category_for_display ~config ~options:cat_options ticket with
-        | Some cat -> sprintf " [%s]" (Category.name cat) | None -> "" in
-      Io.output @@ sprintf "POST: %s (%s)%s from %s\n" ticket (Duration.to_string duration) cat_str source
-    | Processor.Skip _ -> ());
 
-  List.iter skips ~f:(function
-    | Processor.Skip { project; duration } ->
-      Io.output @@ sprintf "SKIP: %s (%s)\n" project (Duration.to_string duration)
-    | Processor.Post _ -> ());
-
-  (* If there are posts, ask for confirmation and post to Tempo *)
   if not (List.is_empty posts) then begin
-    Io.output "\n=== Worklogs to Post ===\n";
+    Io.output "Post:\n";
     List.iter posts ~f:(function
-      | Processor.Post { ticket; duration; source = _; description } ->
-        let desc_suffix = if String.is_empty description then ""
-          else sprintf " - %s" description in
-        Io.output @@ sprintf "  %s: %s%s\n" ticket (Duration.to_string duration) desc_suffix
-      | Processor.Skip _ -> ());
+      | Processor.Post { ticket; duration; source; description } ->
+        let cat_str = match resolve_category_for_display ~config ~options:cat_options ticket with
+          | Some cat -> sprintf "  [%s]" (Category.name cat) | None -> "" in
+        let desc_str = if String.is_empty description then ""
+          else sprintf "  \"%s\"" description in
+        Io.output @@ sprintf "  %-10s (%s)%s  %s%s\n" ticket
+          (Duration.to_string duration) cat_str source desc_str
+      | Processor.Skip _ -> ())
+  end;
 
-    Io.output "[Enter] post | [n] skip day: ";
+  if not (List.is_empty skips) then begin
+    Io.output "Skip:\n";
+    List.iter skips ~f:(function
+      | Processor.Skip { project; duration } ->
+        Io.output @@ sprintf "  %-10s (%s)\n" project (Duration.to_string duration)
+      | Processor.Post _ -> ())
+  end;
+
+  (* Confirmation prompt *)
+  if not (List.is_empty posts) then begin
+    Io.output "\n[Enter] post | [n] skip day: ";
     let confirm = Io.input () in
 
     if not (String.equal confirm "n") then begin
