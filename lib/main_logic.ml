@@ -637,7 +637,7 @@ let run ~config_path ~dates =
   Config.save ~path:config_path config |> Or_error.ok_exn;
 
   (* Prompt for starred projects if not configured *)
-  let config = if List.is_empty config.starred_projects then begin
+  let config = if Option.is_none config.starred_projects then begin
     Io.output "No starred projects configured.\n";
     Io.output "Enter comma-separated Jira project keys to prioritise in search (e.g. DEV,ARCH): ";
     let input = Io.input () in
@@ -649,7 +649,7 @@ let run ~config_path ~dates =
       Io.output @@ sprintf "  Skipping invalid keys: %s\n" (String.concat ~sep:", " invalid);
     if not (List.is_empty valid_keys) then
       Io.output @@ sprintf "Starred projects: %s\n" (String.concat ~sep:", " valid_keys);
-    let config = { config with starred_projects = valid_keys } in
+    let config = { config with starred_projects = Some valid_keys } in
     Config.save ~path:config_path config |> Or_error.ok_exn;
     config
   end else config in

@@ -36,7 +36,12 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:opam.ocaml.org)",
       "WebFetch(domain:ocaml.org)",
-      "Bash(dune promote:*)"
+      "Bash(dune promote:*)",
+      "Bash(/tmp/spec_check.txt:*)",
+      "Bash(/tmp/test_verify.txt:*)",
+      "Bash(/tmp/final_summary.txt:*)",
+      "Bash(/tmp/signature_check.txt:*)",
+      "Bash(git:*)"
     ]
   }
 }

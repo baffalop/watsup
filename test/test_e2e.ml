@@ -68,7 +68,7 @@ let test_config_with_mappings mappings = {
     ];
     fetched_at = "2026-02-07"
   };
-  starred_projects = ["DEV"];
+  starred_projects = Some ["DEV"];
   mappings;
 }
 
