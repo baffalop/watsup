@@ -170,6 +170,19 @@ watsup --star-projects DEV,ARCH
 
 Overwrites `starred_projects` in config. Validates each key against `^[A-Z][A-Z0-9_]+$`.
 
+### Startup Prompt
+
+On startup, if `starred_projects` is empty, prompt the user to configure them:
+
+```
+No starred projects configured.
+Enter comma-separated Jira project keys to prioritise in search (e.g. DEV,ARCH):
+> DEV,LOG
+Starred projects: DEV, LOG
+```
+
+Saved to config immediately. Runs once — after initial setup the prompt doesn't appear again.
+
 ## Integration with `main_logic.ml`
 
 - `prompt_uncached_entry` calls `Jira_search.prompt_loop` instead of the current simple input
