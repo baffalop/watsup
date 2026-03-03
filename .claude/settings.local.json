@@ -41,7 +41,11 @@
       "Bash(/tmp/test_verify.txt:*)",
       "Bash(/tmp/final_summary.txt:*)",
       "Bash(/tmp/signature_check.txt:*)",
-      "Bash(git:*)"
+      "Bash(git stash:*)",
+      "WebFetch(domain:confluence.atlassian.com)",
+      "WebFetch(domain:developer.atlassian.com)",
+      "WebFetch(domain:community.atlassian.com)",
+      "WebFetch(domain:docs.adaptavist.com)"
     ]
   }
 }
