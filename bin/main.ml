@@ -39,7 +39,7 @@ let () =
     let+ day = named_opt ~doc:"Single day: ISO date or -N for relative" ["day"; "d"] string
     and+ from_date = named_opt ~doc:"Range start (ISO date)" ["from"; "f"] string
     and+ to_date = named_opt ~doc:"Range end (ISO date)" ["to"; "t"] string
-    and+ star_projects = named_opt ~doc:"Comma-separated project keys to star" ["star-projects"] string
+    and+ star_projects = named_opt ~doc:"Add comma-separated project keys to starred list" ["star-projects"] string
     and+ search_mode = named_opt ~doc:"Test search prompt in isolation" ["search"] string
     in
     (day, from_date, to_date, star_projects, search_mode)
@@ -57,9 +57,11 @@ let () =
     if not (List.is_empty invalid) then
       failwith (sprintf "Invalid project keys: %s" (String.concat ~sep:", " invalid));
     let config = Config.load ~path:config_path |> Or_error.ok_exn in
-    let config = { config with starred_projects = Some keys } in
+    let existing = Option.value ~default:[] config.starred_projects in
+    let merged = List.dedup_and_sort ~compare:String.compare (existing @ keys) in
+    let config = { config with starred_projects = Some merged } in
     Config.save ~path:config_path config |> Or_error.ok_exn;
-    printf "Starred projects: %s\n" (String.concat ~sep:", " keys)
+    printf "Starred projects: %s\n" (String.concat ~sep:", " merged)
   | _, Some search_terms ->
     let open Core in
     let config = Config.load ~path:config_path |> Or_error.ok_exn in
