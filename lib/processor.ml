@@ -170,6 +170,124 @@ let%expect_test "process_entry split assigns per-tag" =
   print_s [%sexp (mapping : Config.mapping option)];
   [%expect {| () |}]
 
+type entry_resolution =
+  | Project_cached of string
+  | Project_skip
+  | Tag_inferred of string
+  | Auto_split
+  | Uncached
+[@@deriving sexp]
+
+let resolve_entry_mapping ~(config : Config.t) ~project ~(tags : Watson.tag list) =
+  let project_mapping = Config.get_mapping config project in
+  match project_mapping with
+  | Some (Config.Ticket ticket) -> Project_cached ticket
+  | Some Config.Skip -> Project_skip
+  | None when Ticket.is_ticket_pattern project -> Project_cached project
+  | None ->
+    let mapped_tags = List.filter_map tags ~f:(fun tag ->
+      let composite_key = sprintf "%s:%s" project tag.Watson.name in
+      match Config.get_mapping config composite_key with
+      | Some (Config.Ticket ticket) -> Some ticket
+      | Some Config.Skip -> None
+      | None when Ticket.is_ticket_pattern tag.Watson.name -> Some tag.Watson.name
+      | None -> None)
+    in
+    (match mapped_tags with
+     | [] -> Uncached
+     | [ticket] -> Tag_inferred ticket
+     | _ -> Auto_split)
+
+let%expect_test "resolve: project cached ticket" =
+  let config = { Config.empty with mappings = [("myproj", Config.Ticket "PROJ-123")] } in
+  let result = resolve_entry_mapping ~config ~project:"myproj" ~tags:[] in
+  print_s [%sexp (result : entry_resolution)];
+  [%expect {| (Project_cached PROJ-123) |}]
+
+let%expect_test "resolve: project skip" =
+  let config = { Config.empty with mappings = [("breaks", Config.Skip)] } in
+  let result = resolve_entry_mapping ~config ~project:"breaks" ~tags:[] in
+  print_s [%sexp (result : entry_resolution)];
+  [%expect {| Project_skip |}]
+
+let%expect_test "resolve: project is ticket pattern" =
+  let config = Config.empty in
+  let result = resolve_entry_mapping ~config ~project:"DEV-42" ~tags:[] in
+  print_s [%sexp (result : entry_resolution)];
+  [%expect {| (Project_cached DEV-42) |}]
+
+let%expect_test "resolve: one tag with composite mapping" =
+  let config = { Config.empty with mappings = [("cr:DEV-101", Config.Ticket "DEV-101")] } in
+  let tags = [
+    { Watson.name = "DEV-101"; duration = Duration.of_hms ~hours:0 ~mins:30 ~secs:0 };
+    { Watson.name = "review"; duration = Duration.of_hms ~hours:0 ~mins:15 ~secs:0 };
+  ] in
+  let result = resolve_entry_mapping ~config ~project:"cr" ~tags in
+  print_s [%sexp (result : entry_resolution)];
+  [%expect {| (Tag_inferred DEV-101) |}]
+
+let%expect_test "resolve: one tag matches ticket pattern (no config)" =
+  let config = Config.empty in
+  let tags = [
+    { Watson.name = "DEV-101"; duration = Duration.of_hms ~hours:0 ~mins:30 ~secs:0 };
+    { Watson.name = "review"; duration = Duration.of_hms ~hours:0 ~mins:15 ~secs:0 };
+  ] in
+  let result = resolve_entry_mapping ~config ~project:"cr" ~tags in
+  print_s [%sexp (result : entry_resolution)];
+  [%expect {| (Tag_inferred DEV-101) |}]
+
+let%expect_test "resolve: two tags with composite mappings -> auto-split" =
+  let config = { Config.empty with mappings = [
+    ("cr:DEV-101", Config.Ticket "DEV-101");
+    ("cr:DEV-202", Config.Ticket "DEV-202");
+  ] } in
+  let tags = [
+    { Watson.name = "DEV-101"; duration = Duration.of_hms ~hours:0 ~mins:30 ~secs:0 };
+    { Watson.name = "DEV-202"; duration = Duration.of_hms ~hours:0 ~mins:15 ~secs:0 };
+  ] in
+  let result = resolve_entry_mapping ~config ~project:"cr" ~tags in
+  print_s [%sexp (result : entry_resolution)];
+  [%expect {| Auto_split |}]
+
+let%expect_test "resolve: one composite + one ticket pattern -> auto-split" =
+  let config = { Config.empty with mappings = [("cr:DEV-101", Config.Ticket "DEV-101")] } in
+  let tags = [
+    { Watson.name = "DEV-101"; duration = Duration.of_hms ~hours:0 ~mins:30 ~secs:0 };
+    { Watson.name = "DEV-202"; duration = Duration.of_hms ~hours:0 ~mins:15 ~secs:0 };
+  ] in
+  let result = resolve_entry_mapping ~config ~project:"cr" ~tags in
+  print_s [%sexp (result : entry_resolution)];
+  [%expect {| Auto_split |}]
+
+let%expect_test "resolve: no mappings at all" =
+  let config = Config.empty in
+  let tags = [
+    { Watson.name = "review"; duration = Duration.of_hms ~hours:0 ~mins:30 ~secs:0 };
+  ] in
+  let result = resolve_entry_mapping ~config ~project:"cr" ~tags in
+  print_s [%sexp (result : entry_resolution)];
+  [%expect {| Uncached |}]
+
+let%expect_test "resolve: no tags" =
+  let config = Config.empty in
+  let result = resolve_entry_mapping ~config ~project:"cr" ~tags:[] in
+  print_s [%sexp (result : entry_resolution)];
+  [%expect {| Uncached |}]
+
+let%expect_test "resolve: project mapping takes precedence over tag mappings" =
+  let config = { Config.empty with mappings = [
+    ("cr", Config.Ticket "PROJ-1");
+    ("cr:DEV-101", Config.Ticket "DEV-101");
+    ("cr:DEV-202", Config.Ticket "DEV-202");
+  ] } in
+  let tags = [
+    { Watson.name = "DEV-101"; duration = Duration.of_hms ~hours:0 ~mins:30 ~secs:0 };
+    { Watson.name = "DEV-202"; duration = Duration.of_hms ~hours:0 ~mins:15 ~secs:0 };
+  ] in
+  let result = resolve_entry_mapping ~config ~project:"cr" ~tags in
+  print_s [%sexp (result : entry_resolution)];
+  [%expect {| (Project_cached PROJ-1) |}]
+
 let%expect_test "process_entry split with mixed tags" =
   let entry = {
     Watson.project = "cr";

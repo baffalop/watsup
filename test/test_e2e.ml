@@ -323,17 +323,14 @@ let%expect_test "comprehensive interactive flow" =
         [Enter] search "breaks coffee lunch" | [ticket/search] | [s] split | [n] skip | [S] skip always:
       |}];
     input t "n";
-    (* cr: split by tags *)
+    (* cr: auto-split (both tags are ticket patterns) *)
     [%expect {|
       cr - 50m
         [DEV-101  35m]
         [DEV-202  10m]
-
-        [Enter] search "cr DEV-101 DEV-202" | [ticket/search] | [s] split | [n] skip | [S] skip always:
+        auto-splitting
+        [DEV-101  35m]   Looking up DEV-101...
       |}];
-    input t "s";
-    (* DEV-101 tag: auto-detected ticket pattern, lookup via lookup_cached_ticket *)
-    [%expect {| [DEV-101  35m]   Looking up DEV-101... |}];
     http_get t (jira_issue_response ~key:"DEV-101" ~summary:"Dev task 101" ~id:101);
     [%expect {|
       OK
@@ -426,17 +423,14 @@ let%expect_test "cached mappings: ticket and skip (cr uncached)" =
         [Enter] keep | [t] assign ticket:
       |}];
     input t "";
-    (* cr is uncached, so it prompts with search *)
+    (* cr: auto-split (both tags are ticket patterns) *)
     [%expect {|
       cr - 50m
         [DEV-101  35m]
         [DEV-202  10m]
-
-        [Enter] search "cr DEV-101 DEV-202" | [ticket/search] | [s] split | [n] skip | [S] skip always:
+        auto-splitting
+        [DEV-101  35m]   Looking up DEV-101...
       |}];
-    input t "s";
-    (* DEV-101 tag: auto-detected ticket pattern, lookup *)
-    [%expect {| [DEV-101  35m]   Looking up DEV-101... |}];
     http_get t (jira_issue_response ~key:"DEV-101" ~summary:"Dev task 101" ~id:101);
     [%expect {|
       OK
@@ -785,18 +779,15 @@ Total: 1h 20m 02s|} in
     let t = start ~watson_output:[(test_date, watson)] ~config_path (fun () ->
       Main_logic.run ~config_path ~dates:[test_date])
     in
-    (* Entry prompt: split *)
+    (* cr: auto-split (DEV-101 and DEV-202 are ticket patterns) *)
     [%expect {|
       cr - 1h 20m
         [DEV-101  35m]
         [review   10m]
         [DEV-202  35m]
-
-        [Enter] search "cr DEV-101 review DEV-202" | [ticket/search] | [s] split | [n] skip | [S] skip always:
+        auto-splitting
+        [DEV-101  35m]   Looking up DEV-101...
       |}];
-    input t "s";
-    (* DEV-101: auto-detected ticket pattern, lookup via cached_ticket *)
-    [%expect {| [DEV-101  35m]   Looking up DEV-101... |}];
     http_get t (jira_issue_response ~key:"DEV-101" ~summary:"Dev task 101" ~id:101);
     [%expect {|
       OK

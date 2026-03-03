@@ -152,15 +152,17 @@ let show_entry_context entry =
         (Duration.to_string @@ Duration.round_5min tag.duration))
   end
 
-type cached_response = Keep | Change_ticket | Change_category | Skip_once
+type cached_response = Keep | Change_ticket | Change_category | Skip_once | Split
 
-let prompt_cached_entry ~creds ~ticket =
+let prompt_cached_entry ~creds ~ticket ~has_tags =
   match Jira_search.lookup_cached_ticket ~creds ~ticket with
   | Found result ->
     Io.output @@ sprintf "  [-> %s \"%s\"]\n" result.key result.summary;
-    Io.output "  [Enter] keep | [t] ticket | [c] category | [n] skip: ";
+    let split_opt = if has_tags then " | [s] split" else "" in
+    Io.output @@ sprintf "  [Enter] keep | [t] ticket%s | [c] category | [n] skip: " split_opt;
     (match Io.input () with
      | "t" -> (Change_ticket, true)
+     | "s" when has_tags -> (Split, true)
      | "c" -> (Change_category, true)
      | "n" -> (Skip_once, true)
      | _ -> (Keep, true))
@@ -365,11 +367,15 @@ let run_day ~config_path:_ ~config ~creds ~starred_projects ~date =
              handle_uncached_result acc cfg composite_key tag
            | Change_ticket, true ->
              handle_uncached_result acc cfg composite_key tag
-           | Skip_once, _ -> (acc, cfg))
+           | Skip_once, _ -> (acc, cfg)
+           | Split, _ -> (acc, cfg))
         | Some Config.Skip -> (acc, cfg)
         | None ->
           handle_uncached_result acc cfg composite_key tag)
     in
+    (* Clear project-level mapping now that composite keys are set *)
+    let cfg = { cfg with mappings =
+      List.Assoc.remove cfg.mappings ~equal:String.equal entry.Watson.project } in
     (List.rev decisions, cfg, false)
   in
 
@@ -390,59 +396,64 @@ let run_day ~config_path:_ ~config ~creds ~starred_projects ~date =
       handle_split_tags cfg entry
   in
 
+  let handle_cached_entry cfg entry ~ticket =
+    let has_tags = not (List.is_empty entry.Watson.tags) in
+    let response, lookup_ok = prompt_cached_entry ~creds ~ticket ~has_tags in
+    match response, lookup_ok with
+    | Keep, _ ->
+      let description = prompt_description ticket in
+      let decisions = [Processor.Post {
+        ticket; duration = Duration.round_5min entry.Watson.total;
+        source = entry.Watson.project; description;
+      }] in
+      let cfg = Config.set_mapping cfg entry.Watson.project (Config.Ticket ticket) in
+      (decisions, cfg, false)
+    | Split, _ ->
+      handle_split_tags cfg entry
+    | Change_ticket, false ->
+      let cfg = { cfg with mappings =
+        List.Assoc.remove cfg.mappings ~equal:String.equal entry.project } in
+      run_uncached cfg entry
+    | Change_ticket, true -> run_uncached cfg entry
+    | Change_category, _ ->
+      let description = prompt_description ticket in
+      let decisions = [Processor.Post {
+        ticket; duration = Duration.round_5min entry.Watson.total;
+        source = entry.Watson.project; description;
+      }] in
+      let cfg = Config.set_mapping cfg entry.project (Config.Ticket ticket) in
+      (decisions, cfg, true)
+    | Skip_once, _ -> ([], cfg, false)
+  in
+
   (* Process each entry *)
   let all_decisions, config =
     List.fold report.entries ~init:([], config) ~f:(fun (acc_decisions, cfg) entry ->
-      (* Resolve mapping: check cache, then auto-detect ticket pattern *)
-      let cached = Config.get_mapping cfg entry.project in
-      let cached = match cached with
-        | Some _ -> cached
-        | None when Ticket.is_ticket_pattern entry.project ->
-          Some (Config.Ticket entry.project)
-        | None -> None
-      in
+      let resolution = Processor.resolve_entry_mapping ~config:cfg
+        ~project:entry.project ~tags:entry.tags in
 
       (* Always show entry context *)
       show_entry_context entry;
 
-      (* Handle cached vs uncached flow *)
-      let decisions, cfg, force_category_change = match cached with
-        | Some (Config.Ticket ticket) ->
-          let response, lookup_ok = prompt_cached_entry ~creds ~ticket in
-          (match response, lookup_ok with
-           | Keep, _ ->
-             let description = prompt_description ticket in
-             let decisions = [Processor.Post {
-               ticket; duration = Duration.round_5min entry.total;
-               source = entry.project; description;
-             }] in
-             let cfg = Config.set_mapping cfg entry.project (Config.Ticket ticket) in
-             (decisions, cfg, false)
-           | Change_ticket, false ->
-             (* Lookup failed — clear mapping, fall through to uncached *)
-             let cfg = { cfg with mappings =
-               List.Assoc.remove cfg.mappings ~equal:String.equal entry.project } in
-             run_uncached cfg entry
-           | Change_ticket, true -> run_uncached cfg entry
-           | Change_category, _ ->
-             let description = prompt_description ticket in
-             let decisions = [Processor.Post {
-               ticket; duration = Duration.round_5min entry.total;
-               source = entry.project; description;
-             }] in
-             let cfg = Config.set_mapping cfg entry.project (Config.Ticket ticket) in
-             (decisions, cfg, true)
-           | Skip_once, _ -> ([], cfg, false))
-        | Some Config.Skip ->
+      (* Dispatch based on resolution *)
+      let decisions, cfg, force_category_change = match resolution with
+        | Processor.Project_cached ticket ->
+          handle_cached_entry cfg entry ~ticket
+        | Processor.Tag_inferred ticket ->
+          handle_cached_entry cfg entry ~ticket
+        | Processor.Auto_split ->
+          Io.output "  auto-splitting\n";
+          handle_split_tags cfg entry
+        | Processor.Project_skip ->
           let response = prompt_cached_skip () in
           (match response with
            | Change_ticket -> run_uncached cfg entry
-           | Keep | Change_category | Skip_once ->
+           | Keep | Change_category | Skip_once | Split ->
              let decisions = [Processor.Skip {
                project = entry.project; duration = entry.total;
              }] in
              (decisions, cfg, false))
-        | None ->
+        | Processor.Uncached ->
           run_uncached cfg entry
       in
 

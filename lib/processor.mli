@@ -19,6 +19,21 @@ type tag_prompt_response =
 val total_posted_duration : decision list -> Duration.t
 
 (** Process a single entry given cached mapping and user prompt function *)
+type entry_resolution =
+  | Project_cached of string
+  | Project_skip
+  | Tag_inferred of string
+  | Auto_split
+  | Uncached
+[@@deriving sexp]
+
+(** Resolve how an entry should be handled based on config mappings and tag patterns *)
+val resolve_entry_mapping :
+  config:Config.t ->
+  project:string ->
+  tags:Watson.tag list ->
+  entry_resolution
+
 val process_entry :
   entry:Watson.entry ->
   cached:Config.mapping option ->
