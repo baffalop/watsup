@@ -37,12 +37,25 @@ let () =
     let+ day = named_opt ~doc:"Single day: ISO date or -N for relative" ["day"; "d"] string
     and+ from_date = named_opt ~doc:"Range start (ISO date)" ["from"; "f"] string
     and+ to_date = named_opt ~doc:"Range end (ISO date)" ["to"; "t"] string
+    and+ star_projects = named_opt ~doc:"Comma-separated project keys to star" ["star-projects"] string
     in
-    (day, from_date, to_date)
+    (day, from_date, to_date, star_projects)
   in
-  let (day, from_date, to_date) =
+  let (day, from_date, to_date, star_projects) =
     Climate.Command.run_singleton ~doc:"Watson to Jira Tempo CLI" arg_parser
   in
-  let dates = resolve_dates ~day ~from_date ~to_date in
   let config_path = Config.default_path () in
-  Io.with_stdio (fun () -> Main_logic.run ~config_path ~dates)
+  match star_projects with
+  | Some keys_str ->
+    let open Core in
+    let keys = String.split keys_str ~on:',' |> List.map ~f:String.strip in
+    let invalid = List.filter keys ~f:(fun k -> not (Ticket.is_project_key k)) in
+    if not (List.is_empty invalid) then
+      failwith (sprintf "Invalid project keys: %s" (String.concat ~sep:", " invalid));
+    let config = Config.load ~path:config_path |> Or_error.ok_exn in
+    let config = { config with starred_projects = keys } in
+    Config.save ~path:config_path config |> Or_error.ok_exn;
+    printf "Starred projects: %s\n" (String.concat ~sep:", " keys)
+  | None ->
+    let dates = resolve_dates ~day ~from_date ~to_date in
+    Io.with_stdio (fun () -> Main_logic.run ~config_path ~dates)

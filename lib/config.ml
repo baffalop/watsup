@@ -30,6 +30,7 @@ type t = {
   tempo_category_attr_key : string [@default ""];  (* cached Tempo work attribute key for Category *)
   categories : category_cache option [@default None];
   category_selections : (string * string) list [@default []];  (* ticket -> category value *)
+  starred_projects : string list [@default []];
   mappings : (string * mapping) list [@default []];
 }
 [@@deriving sexp]
@@ -52,6 +53,7 @@ let empty = {
   tempo_category_attr_key = "";
   categories = None;
   category_selections = [];
+  starred_projects = [];
   mappings = [];
 }
 

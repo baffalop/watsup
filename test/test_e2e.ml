@@ -68,6 +68,7 @@ let test_config_with_mappings mappings = {
     ];
     fetched_at = "2026-02-07"
   };
+  starred_projects = ["DEV"];
   mappings;
 }
 
@@ -98,8 +99,15 @@ Total: 1h 00m 00s|} in
     (* Fetches account ID via GET *)
     [%expect {| Fetching Jira account ID... |}];
     http_get t { Io.status = 200; body = {|{"accountId": "acc-id-999"}|} };
+    (* Account ID fetched, starred projects prompt *)
+    [%expect {|
+      OK (acc-id-999)
+      No starred projects configured.
+      Enter comma-separated Jira project keys to prioritise in search (e.g. DEV,ARCH):
+      |}];
+    input t "PROJ,ARCH";
+    [%expect {| Starred projects: PROJ, ARCH |}];
     (* Fetches work attribute keys via GET *)
-    [%expect {| OK (acc-id-999) |}];
     http_get t { Io.status = 200; body = {|{"results": [
       {"name": "Account", "key": "_Account_"},
       {"name": "Category", "key": "_Category_"}

@@ -636,6 +636,24 @@ let run ~config_path ~dates =
   (* Save config after credential collection (before category prompt, so restore works) *)
   Config.save ~path:config_path config |> Or_error.ok_exn;
 
+  (* Prompt for starred projects if not configured *)
+  let config = if List.is_empty config.starred_projects then begin
+    Io.output "No starred projects configured.\n";
+    Io.output "Enter comma-separated Jira project keys to prioritise in search (e.g. DEV,ARCH): ";
+    let input = Io.input () in
+    let keys = String.split input ~on:',' |> List.map ~f:String.strip
+      |> List.filter ~f:(fun s -> not (String.is_empty s)) in
+    let valid_keys = List.filter keys ~f:Ticket.is_project_key in
+    let invalid = List.filter keys ~f:(fun k -> not (Ticket.is_project_key k)) in
+    if not (List.is_empty invalid) then
+      Io.output @@ sprintf "  Skipping invalid keys: %s\n" (String.concat ~sep:", " invalid);
+    if not (List.is_empty valid_keys) then
+      Io.output @@ sprintf "Starred projects: %s\n" (String.concat ~sep:", " valid_keys);
+    let config = { config with starred_projects = valid_keys } in
+    Config.save ~path:config_path config |> Or_error.ok_exn;
+    config
+  end else config in
+
   (* Discover Tempo work attribute keys if not cached *)
   let config =
     if String.is_empty config.tempo_account_attr_key

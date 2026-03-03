@@ -21,6 +21,7 @@ type t = {
   tempo_category_attr_key : string;  (* cached Tempo work attribute key for Category *)
   categories : category_cache option;
   category_selections : (string * string) list;  (* ticket -> category value *)
+  starred_projects : string list;
   mappings : (string * mapping) list;
 }
 [@@deriving sexp]
