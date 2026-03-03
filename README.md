@@ -65,21 +65,19 @@ cr - 50m
 After all entries are processed, watsup shows a summary and asks for confirmation before posting:
 
 ```
---- Worklogs to post for 2026-02-05 ---
-  DEV-101: 1h 30m - implement auth flow
-  PROJ-202:    35m - review PR
-  LOG-303:    15m
-  (skipped: breaks 45m)
+=== Summary ===
+Post:
+  DEV-101    (1h 30m)  [Development]  coding  "implement auth flow"
+  PROJ-202   (   35m)  [Development]  cr:PROJ-202  "Code review"
+  LOG-303    (   15m)                 cr:LOG-303
+Skip:
+  breaks     (   45m)
 
 [Enter] post | [n] skip day:
 ```
 
 ### Caching
 
-Ticket assignments are remembered per project. On subsequent runs:
-
-- **Ticket** mappings auto-assign without prompting
-- **Skip** mappings are silently skipped (but listed at the end)
-- **Auto-extract** mappings (from split where all tags were ticket IDs) automatically extract tickets from tags
+Ticket assignments are remembered per project (and per `project:tag` for splits). On subsequent runs, cached entries show their current mapping with the option to keep, change, or skip.
 
 Date ranges are processed one day at a time, each with its own summary and confirmation. Skipping a day continues to the next.

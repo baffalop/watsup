@@ -103,14 +103,15 @@ Config is stored at `~/.config/watsup/config.sexp`:
  (mappings
    ((breaks Skip)
     (coding (Ticket PROJ-123))
-    (cr Auto_extract))))
+    (cr:DEV-101 (Ticket DEV-101)))))
 ```
 
 ### Mapping Types
 
-- `Ticket "PROJ-123"` - Always post to this ticket
-- `Skip` - Never post (e.g., breaks)
-- `Auto_extract` - Extract ticket IDs from tags (e.g., `cr` with tags `FK-123`, `FK-456`)
+- `Ticket "PROJ-123"` - Post to this ticket (prompted to keep or change on each run)
+- `Skip` - Skip this entry (prompted to keep or assign ticket on each run)
+
+Split tag mappings use composite keys like `cr:DEV-101` to avoid cross-contamination between projects. Projects and tags matching Jira ticket patterns (e.g. `DEV-101`) are auto-mapped on first encounter.
 
 ## CLI Usage
 
