@@ -3,7 +3,7 @@ open! Core
 let project_key_re = Re.Pcre.regexp {|^[A-Z][A-Z0-9_]+$|}
 let is_project_key s = Re.execp project_key_re s
 
-let ticket_re = Re.Pcre.regexp {|^[A-Z]+-[0-9]+$|}
+let ticket_re = Re.Pcre.regexp {|^[A-Z][A-Z0-9]*-[0-9]+$|}
 
 let is_ticket_pattern s = Re.execp ticket_re s
 
@@ -15,6 +15,8 @@ let%expect_test "is_ticket_pattern valid" =
   print_s [%sexp (is_ticket_pattern "PROJ-850" : bool)];
   [%expect {| true |}];
   print_s [%sexp (is_ticket_pattern "LOG-16" : bool)];
+  [%expect {| true |}];
+  print_s [%sexp (is_ticket_pattern "A1B2-3" : bool)];
   [%expect {| true |}]
 
 let%expect_test "is_ticket_pattern invalid" =
