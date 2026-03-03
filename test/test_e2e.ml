@@ -72,6 +72,11 @@ let test_config_with_mappings mappings = {
   mappings;
 }
 
+(* Helper: mock a successful Jira issue lookup for lookup_cached_ticket or prompt_loop lookup *)
+let jira_issue_response ~key ~summary ~id =
+  { Io.status = 200;
+    body = sprintf {|{"id": "%d", "key": "%s", "fields": {"summary": "%s"}}|} id key summary }
+
 open Io.Mocked
 
 let%expect_test "first-run: credentials, setup, and posting" =
@@ -118,12 +123,22 @@ Total: 1h 00m 00s|} in
       "names": {"dev": "Development", "met": "Meeting"},
       "values": ["dev", "met"]
     }|} };
-    (* Now watson report is processed, entry prompt *)
+    (* Now watson report is processed, entry prompt with Jira search *)
     [%expect {|
       coding - 1h
-        [ticket] assign | [n] skip | [S] skip always:
+        [Enter] search "coding" | [ticket/search] | [n] skip | [S] skip always:
       |}];
+    (* User types a ticket key directly *)
     input t "PROJ-123";
+    (* Jira lookup for the ticket *)
+    [%expect {| Looking up PROJ-123... |}];
+    http_get t (jira_issue_response ~key:"PROJ-123" ~summary:"First run task" ~id:67890);
+    (* Lookup succeeded, confirm *)
+    [%expect {|
+        PROJ-123  First run task
+        [Enter] confirm | [text] search again | [n] back:
+      |}];
+    input t "";
     [%expect {| Description for PROJ-123 (optional): |}];
     input t "first run work";
     (* Category prompt *)
@@ -188,9 +203,17 @@ Total: 2h 45m 00s|} in
     in
     [%expect {|
       coding - 1h
-        [ticket] assign | [n] skip | [S] skip always:
+        [Enter] search "coding" | [ticket/search] | [n] skip | [S] skip always:
       |}];
+    (* User types ticket key *)
     input t1 "PROJ-123";
+    [%expect {| Looking up PROJ-123... |}];
+    http_get t1 (jira_issue_response ~key:"PROJ-123" ~summary:"Project task" ~id:12345);
+    [%expect {|
+        PROJ-123  Project task
+        [Enter] confirm | [text] search again | [n] back:
+      |}];
+    input t1 "";
     [%expect {| Description for PROJ-123 (optional): |}];
     input t1 "day one work";
     [%expect {|
@@ -203,7 +226,7 @@ Total: 2h 45m 00s|} in
     input t1 "1";
     [%expect {|
       breaks - 30m
-        [ticket] assign | [n] skip | [S] skip always:
+        [Enter] search "breaks" | [ticket/search] | [n] skip | [S] skip always:
       |}];
     input t1 "S";
     [%expect {|
@@ -222,9 +245,12 @@ Total: 2h 45m 00s|} in
     let t2 = start ~watson_output:[("2026-02-04", watson_day2)] ~config_path (fun () ->
       Main_logic.run ~config_path ~dates:["2026-02-04"])
     in
-    (* coding: cached ticket prompt *)
+    (* coding: cached ticket prompt — now does lookup first *)
+    [%expect {| coding - 2h  Looking up PROJ-123... |}];
+    http_get t2 (jira_issue_response ~key:"PROJ-123" ~summary:"Project task" ~id:12345);
     [%expect {|
-      coding - 2h  [-> PROJ-123]
+      OK
+        [-> PROJ-123 "Project task"]
         [Enter] keep | [t] ticket | [c] category | [n] skip:
       |}];
     input t2 "";
@@ -262,12 +288,19 @@ let%expect_test "comprehensive interactive flow" =
     let t = start ~config_path (fun () ->
       Main_logic.run ~config_path ~dates:[test_date])
     in
-    (* architecture: assign ticket *)
+    (* architecture: assign ticket via search prompt *)
     [%expect {|
       architecture - 25m
-        [ticket] assign | [n] skip | [S] skip always:
+        [Enter] search "architecture" | [ticket/search] | [n] skip | [S] skip always:
       |}];
     input t "ARCH-1";
+    [%expect {| Looking up ARCH-1... |}];
+    http_get t (jira_issue_response ~key:"ARCH-1" ~summary:"Architecture task" ~id:100);
+    [%expect {|
+        ARCH-1  Architecture task
+        [Enter] confirm | [text] search again | [n] back:
+      |}];
+    input t "";
     [%expect {| Description for ARCH-1 (optional): |}];
     input t "arch work";
     [%expect {|
@@ -284,7 +317,7 @@ let%expect_test "comprehensive interactive flow" =
         [coffee   20m]
         [lunch    1h]
 
-        [ticket] assign all | [s] split by tags | [n] skip | [S] skip always:
+        [Enter] search "breaks coffee lunch" | [ticket/search] | [s] split | [n] skip | [S] skip always:
       |}];
     input t "n";
     (* cr: split by tags *)
@@ -293,16 +326,26 @@ let%expect_test "comprehensive interactive flow" =
         [DEV-101  35m]
         [DEV-202  10m]
 
-        [ticket] assign all | [s] split by tags | [n] skip | [S] skip always:
+        [Enter] search "cr DEV-101 DEV-202" | [ticket/search] | [s] split | [n] skip | [S] skip always:
       |}];
     input t "s";
-    (* DEV-101 tag: accept default (ticket pattern, Enter auto-accepts) *)
-    [%expect {| [DEV-101  35m] [-> DEV-101] [Enter] keep | [t] change | [n] skip: |}];
+    (* DEV-101 tag: auto-detected ticket pattern, lookup via lookup_cached_ticket *)
+    [%expect {| [DEV-101  35m]   Looking up DEV-101... |}];
+    http_get t (jira_issue_response ~key:"DEV-101" ~summary:"Dev task 101" ~id:101);
+    [%expect {|
+      OK
+      [-> DEV-101 "Dev task 101"] [Enter] keep | [t] change | [n] skip:
+      |}];
     input t "";
     [%expect {| Description for DEV-101 (optional): |}];
     input t "review work";
-    (* DEV-202 tag: accept default *)
-    [%expect {| [DEV-202  10m] [-> DEV-202] [Enter] keep | [t] change | [n] skip: |}];
+    (* DEV-202 tag: auto-detected ticket pattern, lookup *)
+    [%expect {| [DEV-202  10m]   Looking up DEV-202... |}];
+    http_get t (jira_issue_response ~key:"DEV-202" ~summary:"Dev task 202" ~id:202);
+    [%expect {|
+      OK
+      [-> DEV-202 "Dev task 202"] [Enter] keep | [t] change | [n] skip:
+      |}];
     input t "";
     [%expect {| Description for DEV-202 (optional): |}];
     input t "";
@@ -351,9 +394,12 @@ let%expect_test "cached mappings: ticket and skip (cr uncached)" =
     let t = start ~config_path (fun () ->
       Main_logic.run ~config_path ~dates:[test_date])
     in
-    (* architecture: cached ticket prompt *)
+    (* architecture: cached ticket prompt — lookup first *)
+    [%expect {| architecture - 25m  Looking up ARCH-1... |}];
+    http_get t (jira_issue_response ~key:"ARCH-1" ~summary:"Architecture task" ~id:100);
     [%expect {|
-      architecture - 25m  [-> ARCH-1]
+      OK
+        [-> ARCH-1 "Architecture task"]
         [Enter] keep | [t] ticket | [c] category | [n] skip:
       |}];
     input t "";
@@ -376,20 +422,32 @@ let%expect_test "cached mappings: ticket and skip (cr uncached)" =
         [Enter] keep | [t] assign ticket:
       |}];
     input t "";
-    (* cr is uncached, so it prompts *)
+    (* cr is uncached, so it prompts with search *)
     [%expect {|
       cr - 50m
         [DEV-101  35m]
         [DEV-202  10m]
 
-        [ticket] assign all | [s] split by tags | [n] skip | [S] skip always:
+        [Enter] search "cr DEV-101 DEV-202" | [ticket/search] | [s] split | [n] skip | [S] skip always:
       |}];
     input t "s";
-    [%expect {| [DEV-101  35m] [-> DEV-101] [Enter] keep | [t] change | [n] skip: |}];
+    (* DEV-101 tag: auto-detected ticket pattern, lookup *)
+    [%expect {| [DEV-101  35m]   Looking up DEV-101... |}];
+    http_get t (jira_issue_response ~key:"DEV-101" ~summary:"Dev task 101" ~id:101);
+    [%expect {|
+      OK
+      [-> DEV-101 "Dev task 101"] [Enter] keep | [t] change | [n] skip:
+      |}];
     input t "";
     [%expect {| Description for DEV-101 (optional): |}];
     input t "";
-    [%expect {| [DEV-202  10m] [-> DEV-202] [Enter] keep | [t] change | [n] skip: |}];
+    (* DEV-202 tag: auto-detected ticket pattern, lookup *)
+    [%expect {| [DEV-202  10m]   Looking up DEV-202... |}];
+    http_get t (jira_issue_response ~key:"DEV-202" ~summary:"Dev task 202" ~id:202);
+    [%expect {|
+      OK
+      [-> DEV-202 "Dev task 202"] [Enter] keep | [t] change | [n] skip:
+      |}];
     input t "";
     [%expect {| Description for DEV-202 (optional): |}];
     input t "";
@@ -445,9 +503,12 @@ Total: 1h 30m 00s|} in
     let t = start ~watson_output:[(test_date, watson)] ~config_path (fun () ->
       Main_logic.run ~config_path ~dates:[test_date])
     in
-    (* coding: cached ticket prompt *)
+    (* coding: cached ticket prompt — lookup first *)
+    [%expect {| coding - 1h  Looking up PROJ-123... |}];
+    http_get t (jira_issue_response ~key:"PROJ-123" ~summary:"Project task" ~id:12345);
     [%expect {|
-      coding - 1h  [-> PROJ-123]
+      OK
+        [-> PROJ-123 "Project task"]
         [Enter] keep | [t] ticket | [c] category | [n] skip:
       |}];
     input t "";
@@ -462,9 +523,14 @@ Total: 1h 30m 00s|} in
       >
       |}];
     input t "1";
-    (* review: cached ticket prompt *)
+    (* review: cached ticket prompt — lookup first *)
     [%expect {|
-      review - 30m  [-> PROJ-456]
+      review - 30m  Looking up PROJ-456...
+      |}];
+    http_get t (jira_issue_response ~key:"PROJ-456" ~summary:"Review task" ~id:67890);
+    [%expect {|
+      OK
+        [-> PROJ-456 "Review task"]
         [Enter] keep | [t] ticket | [c] category | [n] skip:
       |}];
     input t "";
@@ -537,9 +603,12 @@ Total: 1h 30m 00s|} in
     let t = start ~watson_output:[(test_date, watson)] ~config_path (fun () ->
       Main_logic.run ~config_path ~dates:[test_date])
     in
-    (* coding: cached ticket prompt *)
+    (* coding: cached ticket prompt — lookup first *)
+    [%expect {| coding - 1h  Looking up PROJ-123... |}];
+    http_get t (jira_issue_response ~key:"PROJ-123" ~summary:"Project task" ~id:12345);
     [%expect {|
-      coding - 1h  [-> PROJ-123]
+      OK
+        [-> PROJ-123 "Project task"]
         [Enter] keep | [t] ticket | [c] category | [n] skip:
       |}];
     input t "";
@@ -555,9 +624,14 @@ Total: 1h 30m 00s|} in
       >
       |}];
     input t "2";
-    (* review: cached ticket prompt *)
+    (* review: cached ticket prompt — lookup first *)
     [%expect {|
-      review - 30m  [-> PROJ-456]
+      review - 30m  Looking up PROJ-456...
+      |}];
+    http_get t (jira_issue_response ~key:"PROJ-456" ~summary:"Review task" ~id:67890);
+    [%expect {|
+      OK
+        [-> PROJ-456 "Review task"]
         [Enter] keep | [t] ticket | [c] category | [n] skip:
       |}];
     input t "";
@@ -613,11 +687,16 @@ Total: 2h 00m 00s|});
     let t = start ~watson_output ~config_path (fun () ->
       Main_logic.run ~config_path ~dates:["2026-02-03"; "2026-02-04"])
     in
-    (* Day 1: cached ticket prompt *)
+    (* Day 1: cached ticket prompt — lookup first *)
     [%expect {|
       === 2026-02-03 ===
 
-      coding - 1h  [-> PROJ-123]
+      coding - 1h  Looking up PROJ-123...
+      |}];
+    http_get t (jira_issue_response ~key:"PROJ-123" ~summary:"Project task" ~id:12345);
+    [%expect {|
+      OK
+        [-> PROJ-123 "Project task"]
         [Enter] keep | [t] ticket | [c] category | [n] skip:
       |}];
     input t "";
@@ -642,11 +721,16 @@ Total: 2h 00m 00s|});
       [Enter] post | [n] skip day:
       |}];
     input t "n";
-    (* Day 2: cached ticket prompt *)
+    (* Day 2: cached ticket prompt — lookup first *)
     [%expect {|
       === 2026-02-04 ===
 
-      coding - 2h  [-> PROJ-123]
+      coding - 2h  Looking up PROJ-123...
+      |}];
+    http_get t (jira_issue_response ~key:"PROJ-123" ~summary:"Project task" ~id:12345);
+    [%expect {|
+      OK
+        [-> PROJ-123 "Project task"]
         [Enter] keep | [t] ticket | [c] category | [n] skip:
       |}];
     input t "";
@@ -699,21 +783,38 @@ Total: 1h 20m 02s|} in
         [review   10m]
         [DEV-202  35m]
 
-        [ticket] assign all | [s] split by tags | [n] skip | [S] skip always:
+        [Enter] search "cr DEV-101 review DEV-202" | [ticket/search] | [s] split | [n] skip | [S] skip always:
       |}];
     input t "s";
-    (* DEV-101: accept default (ticket pattern, Enter) *)
-    [%expect {| [DEV-101  35m] [-> DEV-101] [Enter] keep | [t] change | [n] skip: |}];
+    (* DEV-101: auto-detected ticket pattern, lookup via cached_ticket *)
+    [%expect {| [DEV-101  35m]   Looking up DEV-101... |}];
+    http_get t (jira_issue_response ~key:"DEV-101" ~summary:"Dev task 101" ~id:101);
+    [%expect {|
+      OK
+      [-> DEV-101 "Dev task 101"] [Enter] keep | [t] change | [n] skip:
+      |}];
     input t "";
     [%expect {| Description for DEV-101 (optional): |}];
     input t "review of DEV-101";
-    (* review: assign custom ticket *)
-    [%expect {| [review   10m] [ticket] assign | [n] skip: |}];
+    (* review: uncached non-ticket tag, search prompt *)
+    [%expect {| [review   10m]   [Enter] search "cr review" | [ticket/search] | [n] skip | [S] skip always: |}];
     input t "REVIEW-55";
+    [%expect {| Looking up REVIEW-55... |}];
+    http_get t (jira_issue_response ~key:"REVIEW-55" ~summary:"Code review task" ~id:55);
+    [%expect {|
+        REVIEW-55  Code review task
+        [Enter] confirm | [text] search again | [n] back:
+      |}];
+    input t "";
     [%expect {| Description for REVIEW-55 (optional): |}];
     input t "code review";
-    (* DEV-202: skip *)
-    [%expect {| [DEV-202  35m] [-> DEV-202] [Enter] keep | [t] change | [n] skip: |}];
+    (* DEV-202: auto-detected ticket pattern, lookup *)
+    [%expect {| [DEV-202  35m]   Looking up DEV-202... |}];
+    http_get t (jira_issue_response ~key:"DEV-202" ~summary:"Dev task 202" ~id:202);
+    [%expect {|
+      OK
+      [-> DEV-202 "Dev task 202"] [Enter] keep | [t] change | [n] skip:
+      |}];
     input t "n";
     (* Categories for DEV-101 and REVIEW-55 *)
     [%expect {|
@@ -803,9 +904,12 @@ Total: 1h 00m 00s|} in
     let t = start ~watson_output:[(test_date, watson)] ~config_path (fun () ->
       Main_logic.run ~config_path ~dates:[test_date])
     in
-    (* Context + cached prompt: user keeps *)
+    (* Context + cached prompt: lookup first *)
+    [%expect {| coding - 1h  Looking up PROJ-123... |}];
+    http_get t (jira_issue_response ~key:"PROJ-123" ~summary:"Project task" ~id:12345);
     [%expect {|
-      coding - 1h  [-> PROJ-123]
+      OK
+        [-> PROJ-123 "Project task"]
         [Enter] keep | [t] ticket | [c] category | [n] skip:
       |}];
     input t "";
@@ -842,9 +946,12 @@ Total: 1h 00m 00s|} in
     let t = start ~watson_output:[(test_date, watson)] ~config_path (fun () ->
       Main_logic.run ~config_path ~dates:[test_date])
     in
-    (* Should auto-detect DEV-123 and show cached prompt *)
+    (* Should auto-detect DEV-123 and do lookup *)
+    [%expect {| DEV-123 - 1h  Looking up DEV-123... |}];
+    http_get t (jira_issue_response ~key:"DEV-123" ~summary:"Auto-detected task" ~id:123);
     [%expect {|
-      DEV-123 - 1h  [-> DEV-123]
+      OK
+        [-> DEV-123 "Auto-detected task"]
         [Enter] keep | [t] ticket | [c] category | [n] skip:
       |}];
     input t "";
@@ -890,9 +997,18 @@ Total: 30m 00s|} in
         [Enter] keep | [t] assign ticket:
       |}];
     input t "t";
-    (* Now shows uncached prompt *)
-    [%expect {| [ticket] assign | [n] skip | [S] skip always: |}];
+    (* Now shows uncached prompt with search *)
+    [%expect {|
+        [Enter] search "breaks" | [ticket/search] | [n] skip | [S] skip always:
+      |}];
     input t "BREAK-1";
+    [%expect {| Looking up BREAK-1... |}];
+    http_get t (jira_issue_response ~key:"BREAK-1" ~summary:"Break task" ~id:999);
+    [%expect {|
+        BREAK-1  Break task
+        [Enter] confirm | [text] search again | [n] back:
+      |}];
+    input t "";
     (* Description *)
     [%expect {| Description for BREAK-1 (optional): |}];
     input t "team lunch";
@@ -939,9 +1055,16 @@ Total: 1h 00m 00s|} in
     (* review should appear as uncached — no composite key match *)
     [%expect {|
       review - 1h
-        [ticket] assign | [n] skip | [S] skip always:
+        [Enter] search "review" | [ticket/search] | [n] skip | [S] skip always:
       |}];
     input t "REVIEW-99";
+    [%expect {| Looking up REVIEW-99... |}];
+    http_get t (jira_issue_response ~key:"REVIEW-99" ~summary:"Different review" ~id:99);
+    [%expect {|
+        REVIEW-99  Different review
+        [Enter] confirm | [text] search again | [n] back:
+      |}];
+    input t "";
     [%expect {| Description for REVIEW-99 (optional): |}];
     input t "different work";
     [%expect {|
