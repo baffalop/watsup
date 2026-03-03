@@ -161,7 +161,7 @@ let parse_single_issue body =
 
 let search ~creds ~jql =
   let encoded_jql = Uri.pct_encode jql in
-  let url = sprintf "%s/rest/api/2/search?jql=%s&maxResults=5&fields=summary"
+  let url = sprintf "%s/rest/api/3/search/jql?jql=%s&maxResults=5&fields=summary"
     creds.base_url encoded_jql in
   let headers = [jira_auth_header ~email:creds.email ~token:creds.token;
                  ("Accept", "application/json")] in
@@ -172,7 +172,7 @@ let search ~creds ~jql =
     Error (sprintf "Jira search failed (%d): %s" response.status response.body)
 
 let lookup ~creds ~ticket =
-  let url = sprintf "%s/rest/api/2/issue/%s?fields=summary"
+  let url = sprintf "%s/rest/api/3/issue/%s?fields=summary"
     creds.base_url (Uri.pct_encode ticket) in
   let headers = [jira_auth_header ~email:creds.email ~token:creds.token;
                  ("Accept", "application/json")] in

@@ -48,6 +48,23 @@ if [[ "$1" == "restore" ]]; then
     exit 0
 fi
 
+# Search mode - test --search flag with piped stdin
+# Usage: ./scripts/test-cli.sh search <hint> [stdin-lines...]
+# Example: ./scripts/test-cli.sh search metricinput "" 1
+#   (hint="metricinput", then Enter to search, then select #1)
+if [[ "$1" == "search" ]]; then
+    echo "=== Search Mode ==="
+    shift
+    HINT="$1"
+    shift
+    if [[ $# -gt 0 ]]; then
+        printf '%s\n' "$@" | ./_build/default/bin/main.exe --search "$HINT"
+    else
+        ./_build/default/bin/main.exe --search "$HINT"
+    fi
+    exit 0
+fi
+
 # Real config mode - use actual ~/.config/watsup (for API testing with real token)
 # Args before "--" are piped as stdin lines; args after "--" are CLI args to the binary.
 # Examples:
