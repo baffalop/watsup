@@ -1085,3 +1085,56 @@ Total: 1h 00m 00s|} in
     input t "n";
     [%expect {||}];
     finish t
+
+let%expect_test "cached ticket lookup failure: clears mapping, falls through to search" =
+  with_temp_config @@ fun ~config_path ->
+    let config = test_config_with_mappings [("coding", Config.Ticket "OLD-1")] in
+    Config.save ~path:config_path config |> Or_error.ok_exn;
+    let watson = {|Mon 03 February 2026 -> Mon 03 February 2026
+
+coding - 1h 00m 00s
+
+Total: 1h 00m 00s|} in
+    let t = start ~watson_output:[(test_date, watson)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
+    (* Cached ticket lookup returns 404 *)
+    [%expect {| coding - 1h  Looking up OLD-1... |}];
+    http_get t { Io.status = 404; body = "Not Found" };
+    (* Lookup failed -> falls through to uncached search prompt *)
+    [%expect {|
+      not found (404)
+
+        [Enter] search "coding" | [ticket/search] | [n] skip | [S] skip always:
+      |}];
+    (* User searches and picks a different ticket *)
+    input t "NEW-99";
+    [%expect {| Looking up NEW-99... |}];
+    http_get t (jira_issue_response ~key:"NEW-99" ~summary:"Replacement task" ~id:99);
+    [%expect {|
+      NEW-99  Replacement task
+      [Enter] confirm | [text] search again | [n] back:
+      |}];
+    input t "";
+    [%expect {| Description for NEW-99 (optional): |}];
+    input t "new work";
+    (* Category *)
+    [%expect {|
+      NEW-99 category:
+        1. Development
+        2. Meeting
+        3. Support
+      >
+      |}];
+    input t "1";
+    (* Summary *)
+    [%expect {|
+      === Summary ===
+      Post:
+        NEW-99     (1h)  [Development]  coding  "new work"
+
+      [Enter] post | [n] skip day:
+      |}];
+    input t "n";
+    [%expect {||}];
+    finish t

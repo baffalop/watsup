@@ -328,6 +328,20 @@ let run_day ~config_path:_ ~config ~creds ~starred_projects ~date =
   in
 
   let handle_split_tags cfg entry =
+    let accept_tag acc cfg composite_key tag ticket =
+      let description = prompt_description ticket in
+      let cfg = Config.set_mapping cfg composite_key (Config.Ticket ticket) in
+      (Processor.Post {
+        ticket; duration = Duration.round_5min tag.Watson.duration;
+        source = sprintf "%s:%s" entry.Watson.project tag.Watson.name; description;
+      } :: acc, cfg)
+    in
+    let handle_uncached_result acc cfg composite_key tag =
+      match prompt_uncached_tag ~creds ~starred_projects ~date
+          ~project:entry.Watson.project tag with
+      | Processor.Tag_accept ticket -> accept_tag acc cfg composite_key tag ticket
+      | Processor.Tag_skip -> (acc, cfg)
+    in
     let decisions, cfg = List.fold entry.Watson.tags ~init:([], cfg)
       ~f:(fun (acc, cfg) tag ->
         let composite_key = sprintf "%s:%s" entry.Watson.project tag.Watson.name in
@@ -343,50 +357,18 @@ let run_day ~config_path:_ ~config ~creds ~starred_projects ~date =
           let response, lookup_ok = prompt_cached_tag ~creds tag ~ticket in
           (match response, lookup_ok with
            | (Keep | Change_category), _ ->
-             let description = prompt_description ticket in
-             let cfg = Config.set_mapping cfg composite_key (Config.Ticket ticket) in
-             (Processor.Post {
-               ticket; duration = Duration.round_5min tag.Watson.duration;
-               source = sprintf "%s:%s" entry.project tag.name; description;
-             } :: acc, cfg)
+             accept_tag acc cfg composite_key tag ticket
            | Change_ticket, false ->
              (* Lookup failed — clear mapping, fall through to uncached *)
              let cfg = { cfg with mappings =
                List.Assoc.remove cfg.mappings ~equal:String.equal composite_key } in
-             (match prompt_uncached_tag ~creds ~starred_projects ~date
-                 ~project:entry.project tag with
-              | Processor.Tag_accept ticket ->
-                let description = prompt_description ticket in
-                let cfg = Config.set_mapping cfg composite_key (Config.Ticket ticket) in
-                (Processor.Post {
-                  ticket; duration = Duration.round_5min tag.Watson.duration;
-                  source = sprintf "%s:%s" entry.project tag.name; description;
-                } :: acc, cfg)
-              | Processor.Tag_skip -> (acc, cfg))
+             handle_uncached_result acc cfg composite_key tag
            | Change_ticket, true ->
-             (match prompt_uncached_tag ~creds ~starred_projects ~date
-                 ~project:entry.project tag with
-              | Processor.Tag_accept ticket ->
-                let description = prompt_description ticket in
-                let cfg = Config.set_mapping cfg composite_key (Config.Ticket ticket) in
-                (Processor.Post {
-                  ticket; duration = Duration.round_5min tag.Watson.duration;
-                  source = sprintf "%s:%s" entry.project tag.name; description;
-                } :: acc, cfg)
-              | Processor.Tag_skip -> (acc, cfg))
+             handle_uncached_result acc cfg composite_key tag
            | Skip_once, _ -> (acc, cfg))
         | Some Config.Skip -> (acc, cfg)
         | None ->
-          (match prompt_uncached_tag ~creds ~starred_projects ~date
-              ~project:entry.project tag with
-           | Processor.Tag_accept ticket ->
-             let description = prompt_description ticket in
-             let cfg = Config.set_mapping cfg composite_key (Config.Ticket ticket) in
-             (Processor.Post {
-               ticket; duration = Duration.round_5min tag.Watson.duration;
-               source = sprintf "%s:%s" entry.project tag.name; description;
-             } :: acc, cfg)
-           | Processor.Tag_skip -> (acc, cfg)))
+          handle_uncached_result acc cfg composite_key tag)
     in
     (List.rev decisions, cfg, false)
   in
