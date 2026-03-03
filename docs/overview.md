@@ -20,17 +20,13 @@ All external interactions (stdin, stdout, filesystem, HTTP, shell commands) are 
 - E2E testing without real network calls
 - Clear boundaries between pure logic and side effects
 
-### Pure Business Logic
-
-The `Processor` module contains pure functions for entry processing decisions. Given an entry and cached mappings, it returns decisions without any IO.
-
 ### Incremental Feature Building
 
 Each feature is built as a testable increment:
 1. Token management (prompt, cache, reuse)
 2. Watson report parsing
 3. Entry processing logic
-4. Interactive prompts
+4. Interactive prompts with Jira search
 5. API integration
 
 ## Architecture
@@ -50,9 +46,16 @@ Each feature is built as a testable increment:
          │              │              │              │
          ▼              ▼              ▼              ▼
 ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
-│   Io.t      │ │  Config     │ │  Processor  │ │   Watson    │
-│ (IO abstrac)│ │ (persist)   │ │ (pure logic)│ │  (parsing)  │
+│   Io.t      │ │  Config     │ │ Jira_search │ │   Watson    │
+│ (IO abstrac)│ │ (persist)   │ │ (search/    │ │  (parsing)  │
+│             │ │             │ │  lookup)    │ │             │
 └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘
+                                       │
+                                       ▼
+                                ┌─────────────┐
+                                │   Ticket    │
+                                │ (patterns)  │
+                                └─────────────┘
 ```
 
 ### Key Modules
@@ -63,24 +66,31 @@ Each feature is built as a testable increment:
 | `Config` | Configuration persistence (tokens, mappings, cached issue IDs, work attributes) |
 | `Watson` | Parse Watson CLI output into structured entries |
 | `Duration` | Time duration parsing and formatting |
-| `Processor` | Pure entry processing logic (ticket assignment, skip, split decisions) |
-| `Ticket` | Extract ticket IDs from tags |
+| `Jira_search` | Interactive Jira ticket search, lookup, and prompt loop (JQL queries via Jira REST API v3) |
+| `Ticket` | Ticket ID and project key pattern detection and extraction |
 | `Main_logic` | Orchestrate the full workflow |
 
 ### Data Flow
 
 ```
 CLI Args → Resolve Dates → [Per Day Loop]:
-  Watson CLI → Parse → Process Entries → Prompt User → Resolve IDs → POST to Tempo
+  Watson CLI → Parse → Process Entries → Jira Search → Resolve IDs → POST to Tempo
       │                     │                │               │              │
       │                     ▼                ▼               ▼              ▼
-      │              Use cached mappings  Per-ticket    Use cached issue  Include work
-      │              or prompt for new    description   IDs + account     attributes
-      │              (split by tags)      prompt        keys or fetch     (Account +
-      │                     │                           from Jira/Tempo   Category)
+      │              Use cached mappings  Search Jira   Use cached issue  Include work
+      │              or prompt for new    by text or    IDs + account     attributes
+      │              (split by tags)      direct lookup keys or fetch     (Account +
+      │                     │             per ticket    from Jira/Tempo   Category)
       │                     ▼                                  │
       └──────────────► Save to Config ◄────────────────────────┘
 ```
+
+For each ticket prompt, the `Jira_search` module provides an interactive search loop:
+1. Suggests search terms from the Watson entry's project and tags
+2. Detects ticket patterns (e.g. `DEV-101`) and does direct Jira lookup
+3. For text queries, searches via scoped JQL (starred projects, user-touched, recently closed)
+4. Displays up to 5 results for selection
+5. Validates chosen tickets against Jira before assignment
 
 ## Configuration
 
@@ -100,6 +110,7 @@ Config is stored at `~/.config/watsup/config.sexp`:
   ((selected dev-uuid-here)
    (options ((dev-uuid-here Development) (mtg-uuid Meeting)))
    (fetched_at 2026-02-07)))
+ (starred_projects (DEV LOG))
  (mappings
    ((breaks Skip)
     (coding (Ticket PROJ-123))
@@ -120,9 +131,13 @@ watsup                              # today (default)
 watsup -d 2026-02-05                # specific ISO date
 watsup -d -2                        # 2 days ago (relative)
 watsup -f 2026-02-03 -t 2026-02-07  # range, processed day-by-day
+watsup --star-projects DEV,LOG      # add starred projects for search scoping
+watsup --search metricinput         # test Jira search prompt in isolation
 ```
 
 Date ranges are processed one day at a time, each with its own entry prompts, summary, and confirmation step. Skipping a day (`n` at confirmation) continues to the next day.
+
+On first run (or if not yet configured), watsup prompts for starred Jira project keys. These scope search results to relevant projects. Use `--star-projects` to update them later.
 
 ## Outstanding Features
 
@@ -143,6 +158,8 @@ Jira Cloud requires proper OAuth 2.0 flow for granular scopes:
 - [x] Date range selection (`-d`, `-f`/`-t`)
 - [x] Split entries by tags with per-tag ticket assignment
 - [x] Per-ticket description prompts
+- [x] Interactive Jira ticket search with scoped JQL
+- [x] Starred projects for search scoping
 - [ ] Multiple Jira instance support
 - [ ] Config validation and migration tooling
 

@@ -35,17 +35,23 @@ watsup -d 2026-02-05                # specific date
 watsup -d -1                        # yesterday
 watsup -d -2                        # two days ago
 watsup -f 2026-02-03 -t 2026-02-07  # date range (processed day by day)
+watsup --star-projects DEV,LOG      # add starred projects for search scoping
 ```
 
-On first run, watsup prompts for your Tempo token and Jira credentials. These are cached in `~/.config/watsup/config.sexp`.
+On first run, watsup prompts for your Tempo token, Jira credentials, and starred project keys. These are cached in `~/.config/watsup/config.sexp`.
 
-For each Watson project entry, you're prompted to assign a Jira ticket:
+For each Watson project entry, you're prompted to assign a Jira ticket via interactive search:
 
 ```
 coding - 1h 30m
-  [ticket] assign | [n] skip | [S] skip always: DEV-101
+  Search Jira [coding]: metric
+  1) DEV-101  Metric input validation
+  2) DEV-205  Metric dashboard
+  Select [1-2], new search, [n] skip, [S] skip always: 1
   Description for DEV-101 (optional): implement auth flow
 ```
+
+The search is scoped to your starred projects, tickets you've touched, and recently closed issues. Tags that look like ticket IDs (e.g. `DEV-101`) are looked up directly against Jira.
 
 If the entry has Watson tags, you can split it into per-tag worklogs:
 
@@ -54,13 +60,11 @@ cr - 50m
   [PROJ-202  35m]
   [LOG-303  15m]
   [ticket] assign all | [s] split by tags | [n] skip | [S] skip always: s
-  [PROJ-202  35m] [ticket] assign | [n] skip: PROJ-202
+  [PROJ-202  35m] Search Jira [PROJ-202]: (Enter to look up PROJ-202)
   Description for PROJ-202 (optional): Code review
-  [LOG-303  15m] [ticket] assign | [n] skip:
+  [LOG-303  15m] Search Jira [LOG-303]: (Enter to look up LOG-303)
   Description for LOG-303 (optional):
 ```
-
-(Tags that look like ticket IDs are auto-accepted when you press Enter.)
 
 After all entries are processed, watsup shows a summary and asks for confirmation before posting:
 
