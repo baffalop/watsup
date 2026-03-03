@@ -15,6 +15,9 @@ type tag_prompt_response =
   | Tag_skip
 [@@deriving sexp]
 
+(** Sum durations of all Post decisions, excluding Skips *)
+val total_posted_duration : decision list -> Duration.t
+
 (** Process a single entry given cached mapping and user prompt function *)
 val process_entry :
   entry:Watson.entry ->

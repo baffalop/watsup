@@ -495,6 +495,10 @@ let run_day ~config_path:_ ~config ~creds ~starred_projects ~date =
       | Processor.Post _ -> ())
   end;
 
+  if not (List.is_empty posts) then
+    Io.output @@ sprintf "Total: %s\n"
+      (Duration.to_string @@ Processor.total_posted_duration posts);
+
   (* Confirmation prompt *)
   if not (List.is_empty posts) then begin
     Io.output "\n[Enter] post | [n] skip day: ";

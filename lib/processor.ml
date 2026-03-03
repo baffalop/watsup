@@ -59,6 +59,20 @@ let process_entry ~entry ~cached ~prompt ?(tag_prompt = fun _tag -> Tag_skip) ?(
       in
       (decisions, None)
 
+let total_posted_duration decisions =
+  List.fold decisions ~init:Duration.zero ~f:(fun acc -> function
+    | Post { duration; _ } -> Duration.(acc + duration)
+    | Skip _ -> acc)
+
+let%expect_test "total_posted_duration excludes skips" =
+  let decisions = [
+    Post { ticket = "PROJ-1"; duration = Duration.of_hms ~hours:1 ~mins:0 ~secs:0; source = "a"; description = "" };
+    Skip { project = "breaks"; duration = Duration.of_hms ~hours:0 ~mins:30 ~secs:0 };
+    Post { ticket = "PROJ-2"; duration = Duration.of_hms ~hours:0 ~mins:30 ~secs:0; source = "b"; description = "" };
+  ] in
+  print_endline @@ Duration.to_string @@ total_posted_duration decisions;
+  [%expect {| 1h 30m |}]
+
 let%expect_test "process_entry with cached ticket" =
   let entry = {
     Watson.project = "myproj";

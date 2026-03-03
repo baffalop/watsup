@@ -154,6 +154,7 @@ Total: 1h 00m 00s|} in
       === Summary ===
       Post:
         PROJ-123   (1h)  [Development]  coding  "first run work"
+      Total: 1h
 
       [Enter] post | [n] skip day:
       |}];
@@ -235,6 +236,7 @@ Total: 2h 45m 00s|} in
         PROJ-123   (1h)  [Development]  coding  "day one work"
       Skip:
         breaks     (30m)
+      Total: 1h
 
       [Enter] post | [n] skip day:
       |}];
@@ -274,6 +276,7 @@ Total: 2h 45m 00s|} in
         PROJ-123   (2h)  [Development]  coding
       Skip:
         breaks     (45m)
+      Total: 2h
 
       [Enter] post | [n] skip day:
       |}];
@@ -374,6 +377,7 @@ let%expect_test "comprehensive interactive flow" =
         ARCH-1     (25m)  [Development]  architecture  "arch work"
         DEV-101    (35m)  [Development]  cr:DEV-101  "review work"
         DEV-202    (10m)  [Meeting]  cr:DEV-202
+      Total: 1h 10m
 
       [Enter] post | [n] skip day:
       |}];
@@ -475,6 +479,7 @@ let%expect_test "cached mappings: ticket and skip (cr uncached)" =
         DEV-202    (10m)  [Development]  cr:DEV-202
       Skip:
         breaks     (1h 20m)
+      Total: 1h 10m
 
       [Enter] post | [n] skip day:
       |}];
@@ -551,6 +556,7 @@ Total: 1h 30m 00s|} in
       Post:
         PROJ-123   (1h)  [Development]  coding  "test work"
         PROJ-456   (30m)  [Development]  review
+      Total: 1h 30m
 
       [Enter] post | [n] skip day:
       |}];
@@ -657,6 +663,7 @@ Total: 1h 30m 00s|} in
       Post:
         PROJ-123   (1h)  [Meeting]  coding
         PROJ-456   (30m)  [Support]  review
+      Total: 1h 30m
 
       [Enter] post | [n] skip day:
       |}];
@@ -717,6 +724,7 @@ Total: 2h 00m 00s|});
       === Summary ===
       Post:
         PROJ-123   (1h)  [Development]  coding
+      Total: 1h
 
       [Enter] post | [n] skip day:
       |}];
@@ -748,6 +756,7 @@ Total: 2h 00m 00s|});
       === Summary ===
       Post:
         PROJ-123   (2h)  [Development]  coding
+      Total: 2h
 
       [Enter] post | [n] skip day:
       |}];
@@ -839,6 +848,7 @@ Total: 1h 20m 02s|} in
       Post:
         DEV-101    (35m)  [Development]  cr:DEV-101  "review of DEV-101"
         REVIEW-55  (10m)  [Meeting]  cr:review  "code review"
+      Total: 45m
 
       [Enter] post | [n] skip day:
       |}];
@@ -927,6 +937,7 @@ Total: 1h 00m 00s|} in
       === Summary ===
       Post:
         PROJ-123   (1h)  [Development]  coding  "daily work"
+      Total: 1h
 
       [Enter] post | [n] skip day:
       |}];
@@ -972,6 +983,7 @@ Total: 1h 00m 00s|} in
       === Summary ===
       Post:
         DEV-123    (1h)  [Development]  DEV-123  "auto-detected work"
+      Total: 1h
 
       [Enter] post | [n] skip day:
       |}];
@@ -1026,6 +1038,7 @@ Total: 30m 00s|} in
       === Summary ===
       Post:
         BREAK-1    (30m)  [Meeting]  breaks  "team lunch"
+      Total: 30m
 
       [Enter] post | [n] skip day:
       |}];
@@ -1079,6 +1092,7 @@ Total: 1h 00m 00s|} in
       === Summary ===
       Post:
         REVIEW-99  (1h)  [Development]  review  "different work"
+      Total: 1h
 
       [Enter] post | [n] skip day:
       |}];
@@ -1132,6 +1146,7 @@ Total: 1h 00m 00s|} in
       === Summary ===
       Post:
         NEW-99     (1h)  [Development]  coding  "new work"
+      Total: 1h
 
       [Enter] post | [n] skip day:
       |}];
