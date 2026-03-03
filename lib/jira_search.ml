@@ -360,7 +360,7 @@ and search_and_display ~creds ~starred_projects ~log_date terms =
     Io.output "  No search terms provided.\n";
     None
   | Some jql ->
-    match search ~creds ~jql with
+    begin match search ~creds ~jql with
     | Ok [] ->
       Io.output "  No results found.\n";
       Io.output "  [text] search again | [n] back: ";
@@ -373,6 +373,7 @@ and search_and_display ~creds ~starred_projects ~log_date terms =
     | Error msg ->
       Io.output @@ sprintf "  Search failed: %s\n" msg;
       None
+    end
 
 let lookup_cached_ticket ~creds ~ticket =
   Io.output @@ sprintf "  Looking up %s... " ticket;
@@ -557,6 +558,38 @@ let%expect_test "prompt_loop: search twice then select from second results" =
     |}];
   Io.Mocked.input t "1";
   [%expect {| Selected: LOG-1 |}];
+  Io.Mocked.finish t
+
+let%expect_test "prompt_loop: ticket pattern input from results list" =
+  let creds = { base_url = "https://test.atlassian.net"; email = "u@t.com"; token = "t" } in
+  let t = run_mocked (fun () ->
+    let outcome = prompt_loop ~creds ~search_hint:"coding"
+      ~has_tags:false ~starred_projects:[] ~log_date:"2026-02-03" in
+    match outcome with
+    | Selected r -> Io.output @@ sprintf "Selected: %s\n" r.key
+    | _ -> Io.output "other\n")
+  in
+  [%expect {| [Enter] search "coding" | [ticket/search] | [n] skip | [S] skip always: |}];
+  Io.Mocked.input t "";
+  [%expect {||}];
+  Io.Mocked.http_get t { Io.status = 200; body = {|{"issues": [
+    {"id": "10", "key": "CODE-1", "fields": {"summary": "Some code thing"}}
+  ]}|} };
+  [%expect {|
+    1. CODE-1     Some code thing
+    [#] select | [text] search again | [n] back:
+    |}];
+  (* User types a ticket key instead of selecting a number *)
+  Io.Mocked.input t "DEV-50";
+  [%expect {| Looking up DEV-50... |}];
+  Io.Mocked.http_get t { Io.status = 200;
+    body = {|{"id": "50", "key": "DEV-50", "fields": {"summary": "Direct lookup"}}|} };
+  [%expect {|
+    DEV-50  Direct lookup
+    [Enter] confirm | [text] search again | [n] back:
+    |}];
+  Io.Mocked.input t "";
+  [%expect {| Selected: DEV-50 |}];
   Io.Mocked.finish t
 
 let%expect_test "prompt_loop: ticket pattern hint does lookup not search" =
