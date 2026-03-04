@@ -5,7 +5,7 @@ type http_response = {
   body : string;
 }
 
-type color = Reset | Bold | Dim | Red | Green | Yellow | Blue | Cyan
+type color = Reset | Bold | Dim | Red | Green | Yellow | Blue | Cyan | Magenta
 
 type _ Effect.t +=
   | Input : string Effect.t
@@ -35,6 +35,7 @@ let ansi_code_of_color = function
   | Yellow -> "\027[33m"
   | Blue -> "\027[34m"
   | Cyan -> "\027[36m"
+  | Magenta -> "\027[35m"
 
 let color_of_tag = function
   | "header" -> Some Bold
@@ -47,7 +48,8 @@ let color_of_tag = function
   | "prompt" -> Some Dim
   | "project" -> Some Red
   | "duration" -> Some Green
-  | "tag" -> Some Blue
+  | "tag" -> Some Magenta
+  | "key" -> Some Bold
   | "/" -> Some Reset
   | _ -> None
 
@@ -226,6 +228,7 @@ let run_styled s =
     let tag = match c with
       | Reset -> "/)" | Bold -> "(B" | Dim -> "(D" | Red -> "(R"
       | Green -> "(G" | Yellow -> "(Y" | Blue -> "(U" | Cyan -> "(C"
+      | Magenta -> "(M"
     in
     print_string tag; continue k ()
 
@@ -251,3 +254,7 @@ let%expect_test "styled: unknown tag passes through" =
 let%expect_test "styled: unclosed brace passes through" =
   run_styled "hello { world";
   [%expect {| hello { world |}]
+
+let%expect_test "styled: key tag" =
+  run_styled "{key}PROJ-123{/} done";
+  [%expect {| (BPROJ-123/) done |}]

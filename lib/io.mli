@@ -3,7 +3,7 @@ type http_response = {
   body : string;
 }
 
-type color = Reset | Bold | Dim | Red | Green | Yellow | Blue | Cyan
+type color = Reset | Bold | Dim | Red | Green | Yellow | Blue | Cyan | Magenta
 
 type _ Effect.t +=
   | Input : string Effect.t

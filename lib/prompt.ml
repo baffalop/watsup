@@ -63,7 +63,8 @@ let cached_tag ~creds tag ~ticket =
     (Change_ticket, false)
 
 let description ticket =
-  Io.output @@ sprintf "  Description for %s (optional): " (Ticket.Key.to_string ticket);
+  Io.styled @@ sprintf "  {prompt}Description for{/} {key}%s{/} {prompt}(optional):{/} "
+    (Ticket.Key.to_string ticket);
   Io.input ()
 
 let category_list ~options ~current_value =
@@ -87,7 +88,8 @@ let category ~config ~options ticket =
   | Some cached_value ->
     (match List.find options ~f:(fun cat -> String.equal (Category.value cat) cached_value) with
      | Some cat ->
-       Io.styled @@ sprintf "  %s category: %s\n    {prompt}[Enter] keep | [c] change:{/} " ticket_str (Category.name cat);
+       Io.styled @@ sprintf "  {key}%s{/} {prompt}category: %s\n    [Enter] keep | [c] change:{/} "
+         ticket_str (Category.name cat);
        let input = Io.input () in
        if String.equal input "c" then begin
          let value = category_list ~options ~current_value:(Some cached_value) in
@@ -95,10 +97,10 @@ let category ~config ~options ticket =
        end else
          config
      | None ->
-       Io.output @@ sprintf "  %s category (previous selection no longer available):\n" ticket_str;
+       Io.styled @@ sprintf "  {key}%s{/} {prompt}category (previous selection no longer available):{/}\n" ticket_str;
        let value = category_list ~options ~current_value:None in
        Config.set_category_selection config ticket value)
   | None ->
-    Io.output @@ sprintf "  %s category:\n" ticket_str;
+    Io.styled @@ sprintf "  {key}%s{/} {prompt}category:{/}\n" ticket_str;
     let value = category_list ~options ~current_value:None in
     Config.set_category_selection config ticket value

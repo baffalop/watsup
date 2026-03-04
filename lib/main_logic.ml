@@ -65,6 +65,7 @@ let run_styled f =
     let tag = match c with
       | Io.Reset -> "/)" | Bold -> "(B" | Dim -> "(D" | Red -> "(R"
       | Green -> "(G" | Yellow -> "(Y" | Blue -> "(U" | Cyan -> "(C"
+      | Magenta -> "(M"
     in
     print_string tag; continue k ()
 
@@ -87,8 +88,8 @@ let%expect_test "display_watson_report: entries with tags" =
     (Rcoding/) - (G1h 30m/)
 
     (Rcr/) - (G50m/)
-    [(UDEV-101 /) (G33m/)]
-    [(UDEV-202 /) (G12m/)]
+    [(MDEV-101 /) (G33m/)]
+    [(MDEV-202 /) (G12m/)]
 
     (BTotal: (G2h 20m/)
     |}]
