@@ -1223,6 +1223,239 @@ Total: 1h 00m 00s|} in
     [%expect {||}];
     finish t
 
+let%expect_test "split mappings persist across runs" =
+  with_temp_config @@ fun ~config_path ->
+    let config = test_config_with_mappings [] in
+    Config.save ~path:config_path config |> Or_error.ok_exn;
+    let watson = {|Mon 03 February 2026 -> Mon 03 February 2026
+
+cr - 1h 20m 00s
+	[DEV-101     40m 00s]
+	[DEV-202     40m 00s]
+
+Total: 1h 20m 00s|} in
+    (* Run 1: auto-split, user keeps both DEV-101 and DEV-202 *)
+    let t1 = start ~watson_output:[(test_date, watson)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
+    [%expect {|
+      Mon 03 February 2026 -> Mon 03 February 2026
+
+      cr - 1h 20m
+      [DEV-101  40m]
+      [DEV-202  40m]
+
+      Total: 1h 20m
+
+      cr - 1h 20m
+        [DEV-101  40m]
+        [DEV-202  40m]
+        auto-splitting
+        [DEV-101  40m]   Looking up DEV-101...
+      |}];
+    http_get t1 (jira_issue_response ~key:"DEV-101" ~summary:"Dev task 101" ~id:101);
+    [%expect {|
+      OK
+      [-> DEV-101 "Dev task 101"] [Enter] keep | [t] change | [n] skip:
+      |}];
+    input t1 "";   (* keep *)
+    [%expect {| Description for DEV-101 (optional): |}];
+    input t1 "";   (* description *)
+    [%expect {|
+      DEV-101 category:
+        1. Development
+        2. Meeting
+        3. Support
+      >
+      |}];
+    input t1 "1";  (* category: Development *)
+    http_get t1 (jira_issue_response ~key:"DEV-202" ~summary:"Dev task 202" ~id:202);
+    [%expect {|
+        [DEV-202  40m]   Looking up DEV-202... OK
+      [-> DEV-202 "Dev task 202"] [Enter] keep | [t] change | [n] skip:
+      |}];
+    input t1 "";   (* keep *)
+    [%expect {| Description for DEV-202 (optional): |}];
+    input t1 "";   (* description *)
+    [%expect {|
+      DEV-202 category:
+        1. Development
+        2. Meeting
+        3. Support
+      >
+      |}];
+    input t1 "1";  (* category: Development *)
+    [%expect {|
+      === Summary ===
+      Post:
+        cr:DEV-101 (40m)  DEV-101  [Development]
+        cr:DEV-202 (40m)  DEV-202  [Development]
+      Total: 1h 20m
+
+      [Enter] post | [n] skip day:
+      |}];
+    input t1 "n";  (* skip day *)
+    [%expect {||}];
+    finish t1;
+    (* Verify composite keys were persisted to disk *)
+    let saved1 = Config.load ~path:config_path |> Or_error.ok_exn in
+    let has_dev101 = Option.is_some (Config.get_mapping saved1 "cr:DEV-101") in
+    let has_dev202 = Option.is_some (Config.get_mapping saved1 "cr:DEV-202") in
+    printf "cr:DEV-101: %b, cr:DEV-202: %b\n" has_dev101 has_dev202;
+    [%expect {| cr:DEV-101: true, cr:DEV-202: true |}];
+    (* Run 2: composite keys should be in config -> auto-split with cached prompts *)
+    let t2 = start ~watson_output:[(test_date, watson)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
+    [%expect {|
+      Mon 03 February 2026 -> Mon 03 February 2026
+
+      cr - 1h 20m
+      [DEV-101  40m]
+      [DEV-202  40m]
+
+      Total: 1h 20m
+
+      cr - 1h 20m
+        [DEV-101  40m]
+        [DEV-202  40m]
+        auto-splitting
+        [DEV-101  40m]   Looking up DEV-101...
+      |}];
+    (* cached_tag always re-validates the ticket via Jira lookup, even when the composite
+       key is in config — no reduction in HTTP calls vs. an uncached run *)
+    http_get t2 (jira_issue_response ~key:"DEV-101" ~summary:"Dev task 101" ~id:101);
+    [%expect {|
+      OK
+      [-> DEV-101 "Dev task 101"] [Enter] keep | [t] change | [n] skip:
+      |}];
+    input t2 "";   (* keep *)
+    [%expect {| Description for DEV-101 (optional): |}];
+    input t2 "";   (* description *)
+    [%expect {|
+      DEV-101 category: Development
+        [Enter] keep | [c] change:
+      |}];
+    input t2 "";  (* keep category *)
+    http_get t2 (jira_issue_response ~key:"DEV-202" ~summary:"Dev task 202" ~id:202);
+    [%expect {|
+        [DEV-202  40m]   Looking up DEV-202... OK
+      [-> DEV-202 "Dev task 202"] [Enter] keep | [t] change | [n] skip:
+      |}];
+    input t2 "";   (* keep *)
+    [%expect {| Description for DEV-202 (optional): |}];
+    input t2 "";   (* description *)
+    [%expect {|
+      DEV-202 category: Development
+        [Enter] keep | [c] change:
+      |}];
+    input t2 "";  (* keep category *)
+    [%expect {|
+      === Summary ===
+      Post:
+        cr:DEV-101 (40m)  DEV-101  [Development]
+        cr:DEV-202 (40m)  DEV-202  [Development]
+      Total: 1h 20m
+
+      [Enter] post | [n] skip day:
+      |}];
+    input t2 "n";
+    [%expect {||}];
+    finish t2
+
+let%expect_test "split after project-level mapping: clears project key, saves composite" =
+  with_temp_config @@ fun ~config_path ->
+    let config = test_config_with_mappings
+      [("cr", Config.Ticket (Ticket.Key.of_string_exn "PROJ-1"))] in
+    Config.save ~path:config_path config |> Or_error.ok_exn;
+    let watson = {|Mon 03 February 2026 -> Mon 03 February 2026
+
+cr - 1h 20m 00s
+	[DEV-101     40m 00s]
+	[DEV-202     40m 00s]
+
+Total: 1h 20m 00s|} in
+    let t = start ~watson_output:[(test_date, watson)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
+    (* cr: cached ticket PROJ-1, lookup first *)
+    [%expect {|
+      Mon 03 February 2026 -> Mon 03 February 2026
+
+      cr - 1h 20m
+      [DEV-101  40m]
+      [DEV-202  40m]
+
+      Total: 1h 20m
+
+      cr - 1h 20m
+        [DEV-101  40m]
+        [DEV-202  40m]
+        Looking up PROJ-1...
+      |}];
+    http_get t (jira_issue_response ~key:"PROJ-1" ~summary:"Project one" ~id:11);
+    [%expect {|
+      OK
+        [-> PROJ-1 "Project one"]
+        [Enter] keep | [t] ticket | [s] split | [c] category | [n] skip:
+      |}];
+    input t "s";   (* [s] split *)
+    (* DEV-101: auto-inferred ticket pattern *)
+    [%expect {| [DEV-101  40m]   Looking up DEV-101... |}];
+    http_get t (jira_issue_response ~key:"DEV-101" ~summary:"Dev task 101" ~id:101);
+    [%expect {|
+      OK
+      [-> DEV-101 "Dev task 101"] [Enter] keep | [t] change | [n] skip:
+      |}];
+    input t "";   (* keep *)
+    [%expect {| Description for DEV-101 (optional): |}];
+    input t "";   (* description *)
+    [%expect {|
+      DEV-101 category:
+        1. Development
+        2. Meeting
+        3. Support
+      >
+      |}];
+    input t "1";  (* category *)
+    (* DEV-202: auto-inferred ticket pattern *)
+    [%expect {| [DEV-202  40m]   Looking up DEV-202... |}];
+    http_get t (jira_issue_response ~key:"DEV-202" ~summary:"Dev task 202" ~id:202);
+    [%expect {|
+      OK
+      [-> DEV-202 "Dev task 202"] [Enter] keep | [t] change | [n] skip:
+      |}];
+    input t "";   (* keep *)
+    [%expect {| Description for DEV-202 (optional): |}];
+    input t "";   (* description *)
+    [%expect {|
+      DEV-202 category:
+        1. Development
+        2. Meeting
+        3. Support
+      >
+      |}];
+    input t "1";  (* category *)
+    [%expect {|
+      === Summary ===
+      Post:
+        cr:DEV-101 (40m)  DEV-101  [Development]
+        cr:DEV-202 (40m)  DEV-202  [Development]
+      Total: 1h 20m
+
+      [Enter] post | [n] skip day:
+      |}];
+    input t "n";
+    [%expect {||}];
+    finish t;
+    (* Verify config: cr:DEV-101 and cr:DEV-202 saved, but cr NOT present *)
+    let saved = Config.load ~path:config_path |> Or_error.ok_exn in
+    let has_cr = Option.is_some (Config.get_mapping saved "cr") in
+    let has_cr_dev101 = Option.is_some (Config.get_mapping saved "cr:DEV-101") in
+    let has_cr_dev202 = Option.is_some (Config.get_mapping saved "cr:DEV-202") in
+    printf "cr: %b, cr:DEV-101: %b, cr:DEV-202: %b\n" has_cr has_cr_dev101 has_cr_dev202;
+    [%expect {| cr: false, cr:DEV-101: true, cr:DEV-202: true |}]
+
 let%expect_test "cached ticket lookup failure: clears mapping, falls through to search" =
   with_temp_config @@ fun ~config_path ->
     let config = test_config_with_mappings [("coding", Config.Ticket (Ticket.Key.of_string_exn "OLD-1"))] in
