@@ -86,6 +86,8 @@ val get_issue : string -> (string * int) option  (* ticket key, numeric ID *)
 - Expose minimal interface in `.mli` files
 - Use `[@@deriving sexp]` for config types
 - Use Core library functions throughout
+- API modules own their credential types (e.g. `Jira_api.creds`, `Tempo_api.creds`)
+- Prefer opaque domain types over bare strings (e.g. `Category.t`) to avoid primitive obsession
 
 ## Testing Philosophy
 
@@ -300,11 +302,17 @@ watsup/
 ├── bin/
 │   └── main.ml              # Entry point (thin wrapper)
 ├── lib/
+│   ├── category.ml/mli      # Opaque Tempo category type
 │   ├── config.ml/mli        # Configuration persistence
 │   ├── duration.ml/mli      # Time duration handling
-│   ├── io.ml/mli            # IO abstraction
-│   ├── main_logic.ml/mli    # Main workflow orchestration
+│   ├── io.ml/mli            # IO abstraction (effects-based)
+│   ├── jira_api.ml/mli      # Jira REST API + creds type
+│   ├── jira_search.ml/mli   # Interactive Jira search prompt loop
+│   ├── main_logic.ml/mli    # Workflow orchestration + display
 │   ├── processor.ml/mli     # Entry processing logic
+│   ├── prompt.ml/mli        # Interactive user prompts
+│   ├── styled.ml/mli        # CLI colour output
+│   ├── tempo_api.ml/mli     # Tempo REST API + creds type
 │   ├── ticket.ml/mli        # Ticket ID extraction
 │   ├── watson.ml/mli        # Watson output parsing
 │   └── dune                  # Library build config

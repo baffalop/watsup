@@ -40,22 +40,20 @@ Each feature is built as a testable increment:
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                      lib/main_logic.ml                          │
-│              (orchestration, credential prompts,                │
-│               Jira/Tempo API calls, posting flow)               │
+│         (orchestration, display, credential prompts,            │
+│          posting flow, report summary)                          │
 └─────────────────────────────────────────────────────────────────┘
-         │              │              │              │
-         ▼              ▼              ▼              ▼
-┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
-│   Io.t      │ │  Config     │ │ Jira_search │ │   Watson    │
-│ (IO abstrac)│ │ (persist)   │ │ (search/    │ │  (parsing)  │
-│             │ │             │ │  lookup)    │ │             │
-└─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘
-                                       │
-                                       ▼
-                                ┌─────────────┐
-                                │   Ticket    │
-                                │ (patterns)  │
-                                └─────────────┘
+     │          │          │          │          │          │
+     ▼          ▼          ▼          ▼          ▼          ▼
+┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐
+│ Jira   │ │ Tempo  │ │ Prompt │ │  Jira  │ │ Config │ │ Watson │
+│ _api   │ │ _api   │ │        │ │_search │ │        │ │        │
+└────────┘ └────────┘ └────────┘ └────────┘ └────────┘ └────────┘
+     │          │                      │
+     ▼          ▼                      ▼
+┌────────┐ ┌────────┐          ┌─────────────┐
+│  Io    │ │  Io    │          │   Ticket    │
+└────────┘ └────────┘          └─────────────┘
 ```
 
 ### Key Modules
@@ -66,9 +64,14 @@ Each feature is built as a testable increment:
 | `Config` | Configuration persistence (tokens, mappings, cached issue IDs, work attributes) |
 | `Watson` | Parse Watson CLI output into structured entries |
 | `Duration` | Time duration parsing and formatting |
-| `Jira_search` | Interactive Jira ticket search, lookup, and prompt loop (JQL queries via Jira REST API v3) |
+| `Category` | Opaque type for Tempo work-log category values |
+| `Jira_api` | Jira REST API calls (issue lookup, account ID); owns `Jira_api.creds` |
+| `Tempo_api` | Tempo REST API calls (worklogs, work attributes, accounts); owns `Tempo_api.creds` |
+| `Jira_search` | Interactive Jira ticket search and prompt loop (JQL queries via Jira REST API v3) |
+| `Prompt` | Interactive user prompts for entry/tag mapping, description, and category selection |
+| `Processor` | Pure entry processing logic (cached/uncached/split decisions) |
 | `Ticket` | Ticket ID and project key pattern detection and extraction |
-| `Main_logic` | Orchestrate the full workflow |
+| `Main_logic` | Orchestrate the full workflow, display, and reporting |
 
 ### Data Flow
 
