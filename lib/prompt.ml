@@ -1,119 +1,103 @@
 open Core
 
-type action =
-  | Accept of string
-  | Skip
-  | Skip_always
-  | Split
-  | Set_message of string
-  | Change_category
-  | Quit
-[@@deriving sexp]
+type cached_response = Keep | Change_ticket | Change_category | Skip_once | Split
 
-let read_line_safe () =
-  match In_channel.(input_line stdin) with
-  | Some line -> line
-  | None -> ""
+let cached_entry ~creds ~ticket ~has_tags =
+  match Jira_search.lookup_cached_ticket ~creds ~ticket with
+  | Found result ->
+    Io.styled @@ sprintf "  {action}[-> %s \"%s\"]{/}\n" result.key result.summary;
+    let split_opt = if has_tags then " | [s] split" else "" in
+    Io.styled @@ sprintf "  {prompt}[Enter] keep | [t] ticket%s | [c] category | [n] skip:{/} " split_opt;
+    (match Io.input () with
+     | "t" -> (Change_ticket, true)
+     | "s" when has_tags -> (Split, true)
+     | "c" -> (Change_category, true)
+     | "n" -> (Skip_once, true)
+     | _ -> (Keep, true))
+  | Not_found _msg ->
+    (Change_ticket, false)
 
-let prompt_entry entry ~cached ~category =
-  let open Watson in
-  printf "\n%s - %s\n" entry.project
-    (Duration.to_string (Duration.round_5min entry.total));
-  (match cached with
-   | Some (Config.Ticket t) -> printf "  Cached: %s\n" t
-   | Some Config.Skip -> printf "  Cached: SKIP\n"
-   | None -> ());
-  printf
-    "  [Enter] accept | [ticket] override | [s]plit | [n]skip | [S]kip always\n";
-  printf "  [m]essage | [c]ategory (current: %s) | [q]uit\n" category;
-  printf "> %!";
-  let input = read_line_safe () in
-  match input with
-  | "" -> (
-    match cached with
-    | Some (Config.Ticket t) -> Accept t
-    | _ -> Skip)
-  | "s" -> Split
-  | "n" -> Skip
-  | "S" -> Skip_always
-  | "c" -> Change_category
-  | "q" -> Quit
-  | s when String.is_prefix s ~prefix:"m " ->
-    Set_message (String.chop_prefix_exn s ~prefix:"m ")
-  | ticket -> Accept ticket
+let cached_skip () =
+  Io.styled "  {action}[skip]{/}\n";
+  Io.styled "  {prompt}[Enter] keep | [t] assign ticket:{/} ";
+  match Io.input () with
+  | "t" -> Change_ticket
+  | _ -> Keep
 
-let prompt_tag ~project tag =
-  let open Watson in
-  printf "\n%s [%s] - %s\n" project tag.name
-    (Duration.to_string (Duration.round_5min tag.duration));
-  printf "  [ticket] assign | [n]skip | [q]uit split\n";
-  printf "> %!";
-  let input = read_line_safe () in
-  match input with
-  | "n" -> Skip
-  | "q" -> Quit
-  | "" -> Skip
-  | ticket -> Accept ticket
-
-let prompt_ticket ~default =
-  (match default with
-   | Some t -> printf "Ticket [%s]: %!" t
-   | None -> printf "Ticket: %!");
-  let input = read_line_safe () in
-  match (input, default) with
-  | "", Some t -> t
-  | "", None -> ""
-  | s, _ -> s
-
-let prompt_confirm_post worklogs ~skipped ~manual =
-  printf "\n=== Worklogs to Post ===\n";
-  List.iter worklogs ~f:(fun w ->
-      printf "%-12s %-15s %8s  %s\n" w.Worklog.ticket w.source
-        (Duration.to_string w.duration)
-        (Category.name w.category));
-  let total =
-    List.fold worklogs ~init:Duration.zero ~f:(fun acc w ->
-        Duration.(acc + w.Worklog.duration))
+let uncached_entry ~creds ~starred_projects ~date entry =
+  Io.output "\n";
+  let has_tags = not (List.is_empty entry.Watson.tags) in
+  let search_hint =
+    let tag_names = List.map entry.Watson.tags ~f:(fun t -> t.Watson.name) in
+    String.concat ~sep:" " (entry.Watson.project :: tag_names)
   in
-  printf "                        ------\n";
-  printf "Total:                  %8s  (target: 7h 30m)\n"
-    (Duration.to_string total);
-  if not (List.is_empty skipped) then begin
-    printf "\n=== Skipped (cached) ===\n";
-    List.iter skipped ~f:(fun (name, dur) ->
-        printf "%-28s %8s\n" name (Duration.to_string dur))
-  end;
-  if not (List.is_empty manual) then begin
-    printf "\n=== Manual Required (no Account) ===\n";
-    List.iter manual ~f:(fun (name, dur) ->
-        printf "%-28s %8s  [no account found]\n" name (Duration.to_string dur))
-  end;
-  printf "\n[Enter] post all | [q]uit without posting\n";
-  printf "> %!";
-  let input = read_line_safe () in
-  not (String.equal input "q")
+  match Jira_search.prompt_loop ~creds ~search_hint ~has_tags
+      ~starred_projects ~log_date:date with
+  | Jira_search.Selected result -> Processor.Accept result.key
+  | Jira_search.Skip_once -> Processor.Skip_once
+  | Jira_search.Skip_always -> Processor.Skip_always
+  | Jira_search.Split -> Processor.Split
 
-let prompt_token () =
-  printf "Enter Tempo API token: %!";
-  read_line_safe ()
+let uncached_tag ~creds ~starred_projects ~date ~project tag =
+  Io.styled @@ sprintf "  [{tag}%-8s{/} {duration}%s{/}] " tag.Watson.name
+    (Duration.to_string @@ Duration.round_5min tag.Watson.duration);
+  let search_hint = sprintf "%s %s" project tag.Watson.name in
+  match Jira_search.prompt_loop ~creds ~search_hint ~has_tags:false
+      ~starred_projects ~log_date:date with
+  | Jira_search.Selected result -> Processor.Tag_accept result.key
+  | Jira_search.Skip_once | Jira_search.Skip_always -> Processor.Tag_skip
+  | Jira_search.Split -> Processor.Tag_skip
 
-let prompt_category (categories : Category.t list) ~current =
-  printf "\nSelect category:\n";
-  List.iteri categories ~f:(fun i c ->
-    let category_name = Category.name c in
-    let marker =
-      match current with
-      | Some cur when String.(cur = category_name) -> " *"
+let cached_tag ~creds tag ~ticket =
+  Io.styled @@ sprintf "  [{tag}%-8s{/} {duration}%s{/}] " tag.Watson.name
+    (Duration.to_string @@ Duration.round_5min tag.Watson.duration);
+  match Jira_search.lookup_cached_ticket ~creds ~ticket with
+  | Found result ->
+    Io.styled @@ sprintf "{action}[-> %s \"%s\"]{/} {prompt}[Enter] keep | [t] change | [n] skip:{/} "
+      result.key result.summary;
+    (match Io.input () with
+     | "t" -> (Change_ticket, true)
+     | "n" -> (Skip_once, true)
+     | _ -> (Keep, true))
+  | Not_found _msg ->
+    (Change_ticket, false)
+
+let description ticket =
+  Io.output @@ sprintf "  Description for %s (optional): " ticket;
+  Io.input ()
+
+let category_list ~options ~current_value =
+  List.iteri options ~f:(fun i cat ->
+    let marker = match current_value with
+      | Some v when String.equal v (Category.value cat) -> " *"
       | _ -> ""
     in
-    printf "  %d. %s%s\n" (i + 1) category_name marker);
-  printf "  [r] refresh from API\n";
-  printf "> %!";
-  let input = read_line_safe () in
+    Io.output @@ sprintf "    %d. %s%s\n" (i + 1) (Category.name cat) marker);
+  Io.output "  > ";
+  let input = Io.input () in
   match Int.of_string_opt input with
-  | Some n when n > 0 && n <= List.length categories ->
-    Category.name @@ List.nth_exn categories (n - 1)
-  | _ -> (
-    match current with
-    | Some c -> c
-    | None -> "Development")
+  | Some n when n >= 1 && n <= List.length options ->
+    Category.value (List.nth_exn options (n - 1))
+  | _ ->
+    Category.value (List.hd_exn options)
+
+let category ~config ~options ticket =
+  match Config.get_category_selection config ticket with
+  | Some cached_value ->
+    (match List.find options ~f:(fun cat -> String.equal (Category.value cat) cached_value) with
+     | Some cat ->
+       Io.styled @@ sprintf "  %s category: %s\n    {prompt}[Enter] keep | [c] change:{/} " ticket (Category.name cat);
+       let input = Io.input () in
+       if String.equal input "c" then begin
+         let value = category_list ~options ~current_value:(Some cached_value) in
+         Config.set_category_selection config ticket value
+       end else
+         config
+     | None ->
+       Io.output @@ sprintf "  %s category (previous selection no longer available):\n" ticket;
+       let value = category_list ~options ~current_value:None in
+       Config.set_category_selection config ticket value)
+  | None ->
+    Io.output @@ sprintf "  %s category:\n" ticket;
+    let value = category_list ~options ~current_value:None in
+    Config.set_category_selection config ticket value

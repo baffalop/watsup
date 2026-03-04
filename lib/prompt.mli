@@ -1,24 +1,27 @@
-type action =
-  | Accept of string
-  | Skip
-  | Skip_always
-  | Split
-  | Set_message of string
-  | Change_category
-  | Quit
-[@@deriving sexp]
+type cached_response = Keep | Change_ticket | Change_category | Skip_once | Split
 
-val prompt_entry :
-  Watson.entry -> cached:Config.mapping option -> category:string -> action
+val cached_entry :
+  creds:Jira_search.jira_creds -> ticket:string -> has_tags:bool ->
+  cached_response * bool
 
-val prompt_tag : project:string -> Watson.tag -> action
-val prompt_ticket : default:string option -> string
+val cached_skip : unit -> cached_response
 
-val prompt_confirm_post :
-  Worklog.t list ->
-  skipped:(string * Duration.t) list ->
-  manual:(string * Duration.t) list ->
-  bool
+val uncached_entry :
+  creds:Jira_search.jira_creds -> starred_projects:string list ->
+  date:string -> Watson.entry -> Processor.prompt_response
 
-val prompt_token : unit -> string
-val prompt_category : Category.t list -> current:string option -> string
+val uncached_tag :
+  creds:Jira_search.jira_creds -> starred_projects:string list ->
+  date:string -> project:string -> Watson.tag -> Processor.tag_prompt_response
+
+val cached_tag :
+  creds:Jira_search.jira_creds -> Watson.tag -> ticket:string ->
+  cached_response * bool
+
+val description : string -> string
+
+val category_list :
+  options:Category.t list -> current_value:string option -> string
+
+val category :
+  config:Config.t -> options:Category.t list -> string -> Config.t
