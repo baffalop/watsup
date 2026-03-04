@@ -1,4 +1,4 @@
-type search_result = { key : string; summary : string; id : int }
+type search_result = { key : Ticket.Key.t; summary : string; id : int }
 
 type prompt_outcome =
   | Selected of search_result
@@ -17,5 +17,5 @@ val parse_search_results : string -> search_result list
 val parse_single_issue : string -> (search_result, string) result
 val search : creds:Jira_api.creds -> jql:string -> (search_result list, string) result
 val lookup : creds:Jira_api.creds -> ticket:string -> (search_result, string) result
-val lookup_cached_ticket : creds:Jira_api.creds -> ticket:string -> lookup_result
+val lookup_cached_ticket : creds:Jira_api.creds -> ticket:Ticket.Key.t -> lookup_result
 val prompt_loop : creds:Jira_api.creds -> search_hint:string -> has_tags:bool -> starred_projects:string list -> log_date:string -> prompt_outcome

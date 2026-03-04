@@ -58,7 +58,7 @@ let parse_issue_info_json json =
   (issue_id, account_key)
 
 let fetch_issue_info ~creds ~ticket =
-  let url = sprintf "%s/rest/api/2/issue/%s?expand=names" creds.base_url ticket in
+  let url = sprintf "%s/rest/api/2/issue/%s?expand=names" creds.base_url (Ticket.Key.to_string ticket) in
   let headers = [
     auth_header ~creds;
     ("Accept", "application/json");

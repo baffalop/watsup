@@ -1,7 +1,7 @@
 open Core
 
 type mapping =
-  | Ticket of string
+  | Ticket of Ticket.Key.t
   | Skip
 [@@deriving sexp]
 
@@ -24,12 +24,12 @@ type t = {
   jira_token : string [@default ""];
   jira_base_url : string [@default ""];
   jira_account_id : string [@default ""];
-  issue_ids : (string * int) list [@default []];
-  account_keys : (string * string) list [@default []];  (* ticket key -> Tempo account key *)
+  issue_ids : (Ticket.Key.t * int) list [@default []];
+  account_keys : (Ticket.Key.t * string) list [@default []];  (* ticket key -> Tempo account key *)
   tempo_account_attr_key : string [@default ""];  (* cached Tempo work attribute key for Account *)
   tempo_category_attr_key : string [@default ""];  (* cached Tempo work attribute key for Category *)
   categories : category_cache option [@default None];
-  category_selections : (string * string) list [@default []];  (* ticket -> category value *)
+  category_selections : (Ticket.Key.t * string) list [@default []];  (* ticket -> category value *)
   starred_projects : string list option [@default None];
   mappings : (string * mapping) list [@default []];
 }
@@ -87,29 +87,29 @@ let set_mapping config project mapping =
   { config with mappings }
 
 let get_issue_id config ticket =
-  List.Assoc.find config.issue_ids ~equal:String.equal ticket
+  List.Assoc.find config.issue_ids ~equal:Ticket.Key.equal ticket
 
 let set_issue_id config ticket issue_id =
   let issue_ids =
-    List.Assoc.add config.issue_ids ~equal:String.equal ticket issue_id
+    List.Assoc.add config.issue_ids ~equal:Ticket.Key.equal ticket issue_id
   in
   { config with issue_ids }
 
 let get_account_key config ticket =
-  List.Assoc.find config.account_keys ~equal:String.equal ticket
+  List.Assoc.find config.account_keys ~equal:Ticket.Key.equal ticket
 
 let set_account_key config ticket account_key =
   let account_keys =
-    List.Assoc.add config.account_keys ~equal:String.equal ticket account_key
+    List.Assoc.add config.account_keys ~equal:Ticket.Key.equal ticket account_key
   in
   { config with account_keys }
 
 let get_category_selection config ticket =
-  List.Assoc.find config.category_selections ~equal:String.equal ticket
+  List.Assoc.find config.category_selections ~equal:Ticket.Key.equal ticket
 
 let set_category_selection config ticket value =
   let category_selections =
-    List.Assoc.add config.category_selections ~equal:String.equal ticket value
+    List.Assoc.add config.category_selections ~equal:Ticket.Key.equal ticket value
   in
   { config with category_selections }
 
@@ -119,8 +119,8 @@ let%expect_test "config round trip" =
     { empty with
       tempo_token = "test-token";
       jira_email = "user@example.com";
-      issue_ids = [("LOG-1", 12345)];
-      mappings = [ ("breaks", Skip); ("proj", Ticket "LOG-16") ];
+      issue_ids = [(Ticket.Key.of_string_exn "LOG-1", 12345)];
+      mappings = [ ("breaks", Skip); ("proj", Ticket (Ticket.Key.of_string_exn "LOG-16")) ];
     }
   in
   save ~path config |> Or_error.ok_exn;
@@ -129,7 +129,7 @@ let%expect_test "config round trip" =
   [%expect {| test-token |}];
   print_s [%sexp (loaded.jira_email : string)];
   [%expect {| user@example.com |}];
-  print_s [%sexp (loaded.issue_ids : (string * int) list)];
+  print_s [%sexp (loaded.issue_ids : (Ticket.Key.t * int) list)];
   [%expect {| ((LOG-1 12345)) |}];
   print_s [%sexp (loaded.mappings : (string * mapping) list)];
   [%expect {| ((breaks Skip) (proj (Ticket LOG-16))) |}];
@@ -138,7 +138,7 @@ let%expect_test "config round trip" =
 let%expect_test "get_mapping" =
   let config =
     { empty with
-      mappings = [ ("proj", Ticket "LOG-16"); ("breaks", Skip) ];
+      mappings = [ ("proj", Ticket (Ticket.Key.of_string_exn "LOG-16")); ("breaks", Skip) ];
     }
   in
   print_s [%sexp (get_mapping config "proj" : mapping option)];
@@ -148,18 +148,19 @@ let%expect_test "get_mapping" =
 
 let%expect_test "set_mapping" =
   let config = empty in
-  let config = set_mapping config "proj" (Ticket "LOG-16") in
+  let config = set_mapping config "proj" (Ticket (Ticket.Key.of_string_exn "LOG-16")) in
   let config = set_mapping config "breaks" Skip in
   print_s [%sexp (config.mappings : (string * mapping) list)];
   [%expect {| ((breaks Skip) (proj (Ticket LOG-16))) |}]
 
 let%expect_test "get_issue_id and set_issue_id" =
   let config = empty in
-  print_s [%sexp (get_issue_id config "LOG-1" : int option)];
+  let k s = Ticket.Key.of_string_exn s in
+  print_s [%sexp (get_issue_id config (k "LOG-1") : int option)];
   [%expect {| () |}];
-  let config = set_issue_id config "LOG-1" 12345 in
-  let config = set_issue_id config "LOG-2" 67890 in
-  print_s [%sexp (get_issue_id config "LOG-1" : int option)];
+  let config = set_issue_id config (k "LOG-1") 12345 in
+  let config = set_issue_id config (k "LOG-2") 67890 in
+  print_s [%sexp (get_issue_id config (k "LOG-1") : int option)];
   [%expect {| (12345) |}];
-  print_s [%sexp (get_issue_id config "LOG-2" : int option)];
+  print_s [%sexp (get_issue_id config (k "LOG-2") : int option)];
   [%expect {| (67890) |}]

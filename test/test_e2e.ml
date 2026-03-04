@@ -426,7 +426,7 @@ let%expect_test "cached mappings: ticket and skip (cr uncached)" =
   with_temp_config @@ fun ~config_path ->
     let config = {
       (test_config_with_mappings [
-        ("architecture", Config.Ticket "ARCH-1");
+        ("architecture", Config.Ticket (Ticket.Key.of_string_exn "ARCH-1"));
         ("breaks", Config.Skip);
       ]) with
       tempo_token = "existing-token-xyz";
@@ -548,11 +548,11 @@ review - 30m 00s
 Total: 1h 30m 00s|} in
     let config = {
       (test_config_with_mappings [
-        ("coding", Config.Ticket "PROJ-123");
-        ("review", Config.Ticket "PROJ-456");
+        ("coding", Config.Ticket (Ticket.Key.of_string_exn "PROJ-123"));
+        ("review", Config.Ticket (Ticket.Key.of_string_exn "PROJ-456"));
       ]) with
-      issue_ids = [("PROJ-123", 12345)];
-      account_keys = [("PROJ-123", "ACCT-1")];
+      issue_ids = [(Ticket.Key.of_string_exn "PROJ-123", 12345)];
+      account_keys = [(Ticket.Key.of_string_exn "PROJ-123", "ACCT-1")];
     } in
     Config.save ~path:config_path config |> Or_error.ok_exn;
     let t = start ~watson_output:[(test_date, watson)] ~config_path (fun () ->
@@ -658,12 +658,12 @@ review - 30m 00s
 Total: 1h 30m 00s|} in
     let config = {
       (test_config_with_mappings [
-        ("coding", Config.Ticket "PROJ-123");
-        ("review", Config.Ticket "PROJ-456");
+        ("coding", Config.Ticket (Ticket.Key.of_string_exn "PROJ-123"));
+        ("review", Config.Ticket (Ticket.Key.of_string_exn "PROJ-456"));
       ]) with
-      issue_ids = [("PROJ-123", 12345); ("PROJ-456", 67890)];
-      account_keys = [("PROJ-123", "ACCT-1"); ("PROJ-456", "ACCT-2")];
-      category_selections = [("PROJ-456", "dev")];
+      issue_ids = [(Ticket.Key.of_string_exn "PROJ-123", 12345); (Ticket.Key.of_string_exn "PROJ-456", 67890)];
+      account_keys = [(Ticket.Key.of_string_exn "PROJ-123", "ACCT-1"); (Ticket.Key.of_string_exn "PROJ-456", "ACCT-2")];
+      category_selections = [(Ticket.Key.of_string_exn "PROJ-456", "dev")];
     } in
     Config.save ~path:config_path config |> Or_error.ok_exn;
     let t = start ~watson_output:[(test_date, watson)] ~config_path (fun () ->
@@ -744,9 +744,9 @@ Total: 1h 30m 00s|} in
 let%expect_test "multi-day with posting and skipping" =
   with_temp_config @@ fun ~config_path ->
     let config = {
-      (test_config_with_mappings [("coding", Config.Ticket "PROJ-123")]) with
-      issue_ids = [("PROJ-123", 12345)];
-      account_keys = [("PROJ-123", "ACCT-1")];
+      (test_config_with_mappings [("coding", Config.Ticket (Ticket.Key.of_string_exn "PROJ-123"))]) with
+      issue_ids = [(Ticket.Key.of_string_exn "PROJ-123", 12345)];
+      account_keys = [(Ticket.Key.of_string_exn "PROJ-123", "ACCT-1")];
     } in
     Config.save ~path:config_path config |> Or_error.ok_exn;
     let watson_output = [
@@ -994,8 +994,8 @@ let%expect_test "handles empty watson report" =
 let%expect_test "cached ticket: keep all" =
   with_temp_config @@ fun ~config_path ->
     let config = {
-      (test_config_with_mappings [("coding", Config.Ticket "PROJ-123")]) with
-      category_selections = [("PROJ-123", "dev")];
+      (test_config_with_mappings [("coding", Config.Ticket (Ticket.Key.of_string_exn "PROJ-123"))]) with
+      category_selections = [(Ticket.Key.of_string_exn "PROJ-123", "dev")];
     } in
     Config.save ~path:config_path config |> Or_error.ok_exn;
     let watson = {|Mon 03 February 2026 -> Mon 03 February 2026
@@ -1165,9 +1165,9 @@ let%expect_test "composite key: split tag mapping doesn't apply to standalone pr
     (* cr:review mapped to REVIEW-55 from a previous split *)
     let config = {
       (test_config_with_mappings [
-        ("cr:review", Config.Ticket "REVIEW-55");
+        ("cr:review", Config.Ticket (Ticket.Key.of_string_exn "REVIEW-55"));
       ]) with
-      category_selections = [("REVIEW-55", "dev")];
+      category_selections = [(Ticket.Key.of_string_exn "REVIEW-55", "dev")];
     } in
     Config.save ~path:config_path config |> Or_error.ok_exn;
     (* Day has standalone "review" project — should NOT use cr:review mapping *)
@@ -1222,7 +1222,7 @@ Total: 1h 00m 00s|} in
 
 let%expect_test "cached ticket lookup failure: clears mapping, falls through to search" =
   with_temp_config @@ fun ~config_path ->
-    let config = test_config_with_mappings [("coding", Config.Ticket "OLD-1")] in
+    let config = test_config_with_mappings [("coding", Config.Ticket (Ticket.Key.of_string_exn "OLD-1"))] in
     Config.save ~path:config_path config |> Or_error.ok_exn;
     let watson = {|Mon 03 February 2026 -> Mon 03 February 2026
 

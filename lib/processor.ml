@@ -1,19 +1,19 @@
 open Core
 
 type decision =
-  | Post of { ticket : string; duration : Duration.t; source : string; description : string }
+  | Post of { ticket : Ticket.Key.t; duration : Duration.t; source : string; description : string }
   | Skip of { project : string; duration : Duration.t }
 [@@deriving sexp]
 
 type prompt_response =
-  | Accept of string
+  | Accept of Ticket.Key.t
   | Skip_once
   | Skip_always
   | Split
 [@@deriving sexp]
 
 type tag_prompt_response =
-  | Tag_accept of string
+  | Tag_accept of Ticket.Key.t
   | Tag_skip
 [@@deriving sexp]
 
@@ -64,11 +64,13 @@ let total_posted_duration decisions =
     | Post { duration; _ } -> Duration.(acc + duration)
     | Skip _ -> acc)
 
+let k s = Ticket.Key.of_string_exn s
+
 let%expect_test "total_posted_duration excludes skips" =
   let decisions = [
-    Post { ticket = "PROJ-1"; duration = Duration.of_hms ~hours:1 ~mins:0 ~secs:0; source = "a"; description = "" };
+    Post { ticket = k "PROJ-1"; duration = Duration.of_hms ~hours:1 ~mins:0 ~secs:0; source = "a"; description = "" };
     Skip { project = "breaks"; duration = Duration.of_hms ~hours:0 ~mins:30 ~secs:0 };
-    Post { ticket = "PROJ-2"; duration = Duration.of_hms ~hours:0 ~mins:30 ~secs:0; source = "b"; description = "" };
+    Post { ticket = k "PROJ-2"; duration = Duration.of_hms ~hours:0 ~mins:30 ~secs:0; source = "b"; description = "" };
   ] in
   print_endline @@ Duration.to_string @@ total_posted_duration decisions;
   [%expect {| 1h 30m |}]
@@ -81,7 +83,7 @@ let%expect_test "process_entry with cached ticket" =
   } in
   let decisions, mapping = process_entry
     ~entry
-    ~cached:(Some (Config.Ticket "PROJ-123"))
+    ~cached:(Some (Config.Ticket (k "PROJ-123")))
     ~prompt:(fun _ -> failwith "should not prompt") () in
   print_s [%sexp (decisions : decision list)];
   [%expect {| ((Post (ticket PROJ-123) (duration 5400) (source myproj) (description ""))) |}];
@@ -110,7 +112,7 @@ let%expect_test "process_entry prompts when no cache" =
   let decisions, mapping = process_entry
     ~entry
     ~cached:None
-    ~prompt:(fun _ -> Accept "NEW-456") () in
+    ~prompt:(fun _ -> Accept (k "NEW-456")) () in
   print_s [%sexp (decisions : decision list)];
   [%expect {| ((Post (ticket NEW-456) (duration 7200) (source newproj) (description ""))) |}];
   print_s [%sexp (mapping : Config.mapping option)];
@@ -159,7 +161,7 @@ let%expect_test "process_entry split assigns per-tag" =
     ~entry
     ~cached:None
     ~prompt:(fun _ -> Split)
-    ~tag_prompt:(fun tag -> Tag_accept tag.Watson.name)
+    ~tag_prompt:(fun tag -> Tag_accept (Ticket.Key.of_string_exn tag.Watson.name))
     () in
   print_s [%sexp (decisions : decision list)];
   [%expect {|
@@ -171,9 +173,9 @@ let%expect_test "process_entry split assigns per-tag" =
   [%expect {| () |}]
 
 type entry_resolution =
-  | Project_cached of string
+  | Project_cached of Ticket.Key.t
   | Project_skip
-  | Tag_inferred of string
+  | Tag_inferred of Ticket.Key.t
   | Auto_split
   | Uncached
 [@@deriving sexp]
@@ -183,14 +185,14 @@ let resolve_entry_mapping ~(config : Config.t) ~project ~(tags : Watson.tag list
   match project_mapping with
   | Some (Config.Ticket ticket) -> Project_cached ticket
   | Some Config.Skip -> Project_skip
-  | None when Ticket.is_ticket_pattern project -> Project_cached project
+  | None when Ticket.is_ticket_pattern project -> Project_cached (Ticket.Key.of_string_exn project)
   | None ->
     let mapped_tags = List.filter_map tags ~f:(fun tag ->
       let composite_key = sprintf "%s:%s" project tag.Watson.name in
       match Config.get_mapping config composite_key with
       | Some (Config.Ticket ticket) -> Some ticket
       | Some Config.Skip -> None
-      | None when Ticket.is_ticket_pattern tag.Watson.name -> Some tag.Watson.name
+      | None when Ticket.is_ticket_pattern tag.Watson.name -> Some (Ticket.Key.of_string_exn tag.Watson.name)
       | None -> None)
     in
     (match mapped_tags with
@@ -199,7 +201,7 @@ let resolve_entry_mapping ~(config : Config.t) ~project ~(tags : Watson.tag list
      | _ -> Auto_split)
 
 let%expect_test "resolve: project cached ticket" =
-  let config = { Config.empty with mappings = [("myproj", Config.Ticket "PROJ-123")] } in
+  let config = { Config.empty with mappings = [("myproj", Config.Ticket (k "PROJ-123"))] } in
   let result = resolve_entry_mapping ~config ~project:"myproj" ~tags:[] in
   print_s [%sexp (result : entry_resolution)];
   [%expect {| (Project_cached PROJ-123) |}]
@@ -217,7 +219,7 @@ let%expect_test "resolve: project is ticket pattern" =
   [%expect {| (Project_cached DEV-42) |}]
 
 let%expect_test "resolve: one tag with composite mapping" =
-  let config = { Config.empty with mappings = [("cr:DEV-101", Config.Ticket "DEV-101")] } in
+  let config = { Config.empty with mappings = [("cr:DEV-101", Config.Ticket (k "DEV-101"))] } in
   let tags = [
     { Watson.name = "DEV-101"; duration = Duration.of_hms ~hours:0 ~mins:30 ~secs:0 };
     { Watson.name = "review"; duration = Duration.of_hms ~hours:0 ~mins:15 ~secs:0 };
@@ -238,8 +240,8 @@ let%expect_test "resolve: one tag matches ticket pattern (no config)" =
 
 let%expect_test "resolve: two tags with composite mappings -> auto-split" =
   let config = { Config.empty with mappings = [
-    ("cr:DEV-101", Config.Ticket "DEV-101");
-    ("cr:DEV-202", Config.Ticket "DEV-202");
+    ("cr:DEV-101", Config.Ticket (k "DEV-101"));
+    ("cr:DEV-202", Config.Ticket (k "DEV-202"));
   ] } in
   let tags = [
     { Watson.name = "DEV-101"; duration = Duration.of_hms ~hours:0 ~mins:30 ~secs:0 };
@@ -250,7 +252,7 @@ let%expect_test "resolve: two tags with composite mappings -> auto-split" =
   [%expect {| Auto_split |}]
 
 let%expect_test "resolve: one composite + one ticket pattern -> auto-split" =
-  let config = { Config.empty with mappings = [("cr:DEV-101", Config.Ticket "DEV-101")] } in
+  let config = { Config.empty with mappings = [("cr:DEV-101", Config.Ticket (k "DEV-101"))] } in
   let tags = [
     { Watson.name = "DEV-101"; duration = Duration.of_hms ~hours:0 ~mins:30 ~secs:0 };
     { Watson.name = "DEV-202"; duration = Duration.of_hms ~hours:0 ~mins:15 ~secs:0 };
@@ -276,9 +278,9 @@ let%expect_test "resolve: no tags" =
 
 let%expect_test "resolve: project mapping takes precedence over tag mappings" =
   let config = { Config.empty with mappings = [
-    ("cr", Config.Ticket "PROJ-1");
-    ("cr:DEV-101", Config.Ticket "DEV-101");
-    ("cr:DEV-202", Config.Ticket "DEV-202");
+    ("cr", Config.Ticket (k "PROJ-1"));
+    ("cr:DEV-101", Config.Ticket (k "DEV-101"));
+    ("cr:DEV-202", Config.Ticket (k "DEV-202"));
   ] } in
   let tags = [
     { Watson.name = "DEV-101"; duration = Duration.of_hms ~hours:0 ~mins:30 ~secs:0 };
@@ -303,7 +305,7 @@ let%expect_test "process_entry split with mixed tags" =
     ~prompt:(fun _ -> Split)
     ~tag_prompt:(fun tag ->
       if String.equal tag.Watson.name "review" then Tag_skip
-      else Tag_accept tag.name)
+      else Tag_accept (Ticket.Key.of_string_exn tag.name))
     () in
   print_s [%sexp (decisions : decision list)];
   [%expect {| ((Post (ticket DEV-101) (duration 2100) (source cr:DEV-101) (description ""))) |}];

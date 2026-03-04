@@ -1,5 +1,15 @@
 open! Core
 
+module Key = struct
+  type t = string [@@deriving sexp]
+  let of_string s = if Re.execp (Re.Pcre.regexp {|^[A-Z][A-Z0-9]*-[0-9]+$|}) s then Some s else None
+  let of_string_exn s = match of_string s with
+    | Some t -> t
+    | None -> failwith (sprintf "Invalid ticket key: %s" s)
+  let to_string t = t
+  let equal = String.equal
+end
+
 let project_key_re = Re.Pcre.regexp {|^[A-Z][A-Z0-9_]+$|}
 let is_project_key s = Re.execp project_key_re s
 
@@ -7,7 +17,7 @@ let ticket_re = Re.Pcre.regexp {|^[A-Z][A-Z0-9]*-[0-9]+$|}
 
 let is_ticket_pattern s = Re.execp ticket_re s
 
-let extract_tickets tags = List.filter tags ~f:is_ticket_pattern
+let extract_tickets tags = List.filter_map tags ~f:Key.of_string
 
 let%expect_test "is_ticket_pattern valid" =
   print_s [%sexp (is_ticket_pattern "DEV-101" : bool)];

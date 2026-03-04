@@ -5,7 +5,7 @@ type cached_response = Keep | Change_ticket | Change_category | Skip_once | Spli
 let cached_entry ~creds ~ticket ~has_tags =
   match Jira_search.lookup_cached_ticket ~creds ~ticket with
   | Found result ->
-    Io.styled @@ sprintf "  {action}[-> %s \"%s\"]{/}\n" result.key result.summary;
+    Io.styled @@ sprintf "  {action}[-> %s \"%s\"]{/}\n" (Ticket.Key.to_string result.key) result.summary;
     let split_opt = if has_tags then " | [s] split" else "" in
     Io.styled @@ sprintf "  {prompt}[Enter] keep | [t] ticket%s | [c] category | [n] skip:{/} " split_opt;
     (match Io.input () with
@@ -54,7 +54,7 @@ let cached_tag ~creds tag ~ticket =
   match Jira_search.lookup_cached_ticket ~creds ~ticket with
   | Found result ->
     Io.styled @@ sprintf "{action}[-> %s \"%s\"]{/} {prompt}[Enter] keep | [t] change | [n] skip:{/} "
-      result.key result.summary;
+      (Ticket.Key.to_string result.key) result.summary;
     (match Io.input () with
      | "t" -> (Change_ticket, true)
      | "n" -> (Skip_once, true)
@@ -63,7 +63,7 @@ let cached_tag ~creds tag ~ticket =
     (Change_ticket, false)
 
 let description ticket =
-  Io.output @@ sprintf "  Description for %s (optional): " ticket;
+  Io.output @@ sprintf "  Description for %s (optional): " (Ticket.Key.to_string ticket);
   Io.input ()
 
 let category_list ~options ~current_value =
@@ -82,11 +82,12 @@ let category_list ~options ~current_value =
     Category.value (List.hd_exn options)
 
 let category ~config ~options ticket =
+  let ticket_str = Ticket.Key.to_string ticket in
   match Config.get_category_selection config ticket with
   | Some cached_value ->
     (match List.find options ~f:(fun cat -> String.equal (Category.value cat) cached_value) with
      | Some cat ->
-       Io.styled @@ sprintf "  %s category: %s\n    {prompt}[Enter] keep | [c] change:{/} " ticket (Category.name cat);
+       Io.styled @@ sprintf "  %s category: %s\n    {prompt}[Enter] keep | [c] change:{/} " ticket_str (Category.name cat);
        let input = Io.input () in
        if String.equal input "c" then begin
          let value = category_list ~options ~current_value:(Some cached_value) in
@@ -94,10 +95,10 @@ let category ~config ~options ticket =
        end else
          config
      | None ->
-       Io.output @@ sprintf "  %s category (previous selection no longer available):\n" ticket;
+       Io.output @@ sprintf "  %s category (previous selection no longer available):\n" ticket_str;
        let value = category_list ~options ~current_value:None in
        Config.set_category_selection config ticket value)
   | None ->
-    Io.output @@ sprintf "  %s category:\n" ticket;
+    Io.output @@ sprintf "  %s category:\n" ticket_str;
     let value = category_list ~options ~current_value:None in
     Config.set_category_selection config ticket value

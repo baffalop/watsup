@@ -79,7 +79,7 @@ let () =
         ~has_tags:false ~starred_projects ~log_date in
       match outcome with
       | Jira_search.Selected r ->
-        printf "Selected: %s (%d) - %s\n" r.key r.id r.summary
+        printf "Selected: %s (%d) - %s\n" (Ticket.Key.to_string r.key) r.id r.summary
       | Jira_search.Skip_once -> printf "Skipped\n"
       | Jira_search.Skip_always -> printf "Skip always\n"
       | Jira_search.Split -> printf "Split\n")

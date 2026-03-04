@@ -117,7 +117,7 @@ let run_day ~config_path:_ ~config ~creds ~tempo_creds ~starred_projects ~date =
   display_watson_report report;
 
   let handle_split_tags cfg entry =
-    let accept_tag acc cfg composite_key tag ticket =
+    let accept_tag acc cfg composite_key tag (ticket : Ticket.Key.t) =
       let description = Prompt.description ticket in
       let cfg = Config.set_mapping cfg composite_key (Config.Ticket ticket) in
       (Processor.Post {
@@ -138,7 +138,7 @@ let run_day ~config_path:_ ~config ~creds ~tempo_creds ~starred_projects ~date =
         let tag_cached = match tag_cached with
           | Some _ -> tag_cached
           | None when Ticket.is_ticket_pattern tag.name ->
-            Some (Config.Ticket tag.name)
+            Some (Config.Ticket (Ticket.Key.of_string_exn tag.name))
           | None -> None
         in
         match tag_cached with
@@ -250,7 +250,7 @@ let run_day ~config_path:_ ~config ~creds ~tempo_creds ~starred_projects ~date =
           List.fold decisions ~init:cfg ~f:(fun c -> function
             | Processor.Post { ticket; _ } ->
               if force_category_change then begin
-                Io.output @@ sprintf "  %s category:\n" ticket;
+                Io.output @@ sprintf "  %s category:\n" (Ticket.Key.to_string ticket);
                 let value = Prompt.category_list ~options ~current_value:None in
                 Config.set_category_selection c ticket value
               end else
@@ -275,12 +275,13 @@ let run_day ~config_path:_ ~config ~creds ~tempo_creds ~starred_projects ~date =
     Io.output "Post:\n";
     List.iter posts ~f:(function
       | Processor.Post { ticket; duration; source; description } ->
+        let ticket_str = Ticket.Key.to_string ticket in
         let cat_str = match resolve_category_for_display ~config ~options:cat_options ticket with
           | Some cat -> sprintf "  {dim}[%s]{/}" (Category.name cat) | None -> "" in
         let desc_str = if String.is_empty description then ""
           else sprintf "  \"%s\"" description in
         Io.styled @@ sprintf "  {project}%-10s{/} ({duration}%s{/})  {action}%s{/}%s%s\n"
-          source (Duration.to_string duration) ticket cat_str desc_str
+          source (Duration.to_string duration) ticket_str cat_str desc_str
       | Processor.Skip _ -> ())
   end;
 
@@ -310,12 +311,13 @@ let run_day ~config_path:_ ~config ~creds ~tempo_creds ~starred_projects ~date =
         List.fold posts ~init:([], config) ~f:(fun (acc, cfg) decision ->
           match decision with
           | Processor.Post { ticket; duration; source = _; description } ->
+            let ticket_str = Ticket.Key.to_string ticket in
             (* Look up or fetch issue ID + account key *)
             let issue_id, account_key, cfg =
               match Config.get_issue_id cfg ticket, Config.get_account_key cfg ticket with
               | Some id, Some key -> (id, Some key, cfg)
               | _ ->
-                Io.styled @@ sprintf "  {dim}Looking up %s...{/} " ticket;
+                Io.styled @@ sprintf "  {dim}Looking up %s...{/} " ticket_str;
                 match Jira_api.fetch_issue_info ~creds ~ticket with
                 | Ok (id, account_id) ->
                   let cfg = Config.set_issue_id cfg ticket id in
@@ -336,7 +338,7 @@ let run_day ~config_path:_ ~config ~creds ~tempo_creds ~starred_projects ~date =
                   (id, account_key, cfg)
                 | Error msg ->
                   Io.styled @@ sprintf "{err}FAILED: %s{/}\n" msg;
-                  failwith @@ sprintf "Could not fetch issue info for %s" ticket
+                  failwith @@ sprintf "Could not fetch issue info for %s" ticket_str
             in
             let cat_options = match cfg.categories with
               | Some { options; _ } -> options | None -> [] in
@@ -355,9 +357,9 @@ let run_day ~config_path:_ ~config ~creds ~tempo_creds ~starred_projects ~date =
                 ~issue_id ~duration ~date ~description ~attributes in
             let success = response.Io.status >= 200 && response.status < 300 in
             if success then
-              Io.styled @@ sprintf "{ok}%s: OK{/}\n" ticket
+              Io.styled @@ sprintf "{ok}%s: OK{/}\n" ticket_str
             else begin
-              Io.styled @@ sprintf "{err}%s: FAILED (%d){/}\n" ticket response.status;
+              Io.styled @@ sprintf "{err}%s: FAILED (%d){/}\n" ticket_str response.status;
               Io.styled @@ sprintf "  {dim}Response: %s{/}\n" response.body
             end;
             (success :: acc, cfg)

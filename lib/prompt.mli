@@ -1,7 +1,7 @@
 type cached_response = Keep | Change_ticket | Change_category | Skip_once | Split
 
 val cached_entry :
-  creds:Jira_api.creds -> ticket:string -> has_tags:bool ->
+  creds:Jira_api.creds -> ticket:Ticket.Key.t -> has_tags:bool ->
   cached_response * bool
 
 val cached_skip : unit -> cached_response
@@ -15,13 +15,13 @@ val uncached_tag :
   date:string -> project:string -> Watson.tag -> Processor.tag_prompt_response
 
 val cached_tag :
-  creds:Jira_api.creds -> Watson.tag -> ticket:string ->
+  creds:Jira_api.creds -> Watson.tag -> ticket:Ticket.Key.t ->
   cached_response * bool
 
-val description : string -> string
+val description : Ticket.Key.t -> string
 
 val category_list :
   options:Category.t list -> current_value:string option -> string
 
 val category :
-  config:Config.t -> options:Category.t list -> string -> Config.t
+  config:Config.t -> options:Category.t list -> Ticket.Key.t -> Config.t

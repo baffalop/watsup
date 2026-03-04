@@ -122,7 +122,7 @@ let%expect_test "build_search_jql: invalid starred projects filtered" =
 (* === Part C: Search and lookup API === *)
 
 type search_result = {
-  key : string;
+  key : Ticket.Key.t;
   summary : string;
   id : int;
 }
@@ -133,7 +133,7 @@ let parse_search_results body =
     let issues = Yojson.Safe.Util.(json |> member "issues" |> to_list) in
     List.filter_map issues ~f:(fun issue ->
       try
-        let key = Yojson.Safe.Util.(issue |> member "key" |> to_string) in
+        let key = Yojson.Safe.Util.(issue |> member "key" |> to_string) |> Ticket.Key.of_string_exn in
         let id = Yojson.Safe.Util.(issue |> member "id" |> to_string |> Int.of_string) in
         let summary = Yojson.Safe.Util.(issue |> member "fields" |> member "summary" |> to_string) in
         Some { key; summary; id }
@@ -143,7 +143,7 @@ let parse_search_results body =
 let parse_single_issue body =
   try
     let json = Yojson.Safe.from_string body in
-    let key = Yojson.Safe.Util.(json |> member "key" |> to_string) in
+    let key = Yojson.Safe.Util.(json |> member "key" |> to_string) |> Ticket.Key.of_string_exn in
     let id = Yojson.Safe.Util.(json |> member "id" |> to_string |> Int.of_string) in
     let summary = Yojson.Safe.Util.(json |> member "fields" |> member "summary" |> to_string) in
     Ok { key; summary; id }
@@ -178,7 +178,7 @@ let%expect_test "parse_search_results: valid" =
     {"id": "456", "key": "DEV-2", "fields": {"summary": "Second issue"}}
   ]}|} in
   let results = parse_search_results body in
-  List.iter results ~f:(fun r -> printf "%s (%d): %s\n" r.key r.id r.summary);
+  List.iter results ~f:(fun r -> printf "%s (%d): %s\n" (Ticket.Key.to_string r.key) r.id r.summary);
   [%expect {|
     DEV-1 (123): First issue
     DEV-2 (456): Second issue
@@ -201,7 +201,7 @@ let%expect_test "parse_search_results: empty and malformed" =
 let%expect_test "parse_single_issue: valid and invalid" =
   let test body =
     match parse_single_issue body with
-    | Ok r -> printf "OK: %s (%d) %s\n" r.key r.id r.summary
+    | Ok r -> printf "OK: %s (%d) %s\n" (Ticket.Key.to_string r.key) r.id r.summary
     | Error e -> printf "Error: %s\n" e
   in
   test {|{"id": "789", "key": "DEV-3", "fields": {"summary": "Third issue"}}|};
@@ -229,7 +229,7 @@ let%expect_test "search: success" =
   let t = run_mocked (fun () ->
     match search ~creds ~jql:{|text ~ "coding"|} with
     | Ok results ->
-      List.iter results ~f:(fun r -> Io.output @@ sprintf "%s: %s\n" r.key r.summary)
+      List.iter results ~f:(fun r -> Io.output @@ sprintf "%s: %s\n" (Ticket.Key.to_string r.key) r.summary)
     | Error e -> Io.output @@ sprintf "Error: %s\n" e)
   in
   Io.Mocked.http_get t { Io.status = 200; body = {|{"issues": [
@@ -253,7 +253,7 @@ let%expect_test "lookup: success" =
   let creds = { Jira_api.base_url = "https://test.atlassian.net"; email = "u@t.com"; token = "t" } in
   let t = run_mocked (fun () ->
     match lookup ~creds ~ticket:"DEV-123" with
-    | Ok r -> Io.output @@ sprintf "%s: %s (id=%d)\n" r.key r.summary r.id
+    | Ok r -> Io.output @@ sprintf "%s: %s (id=%d)\n" (Ticket.Key.to_string r.key) r.summary r.id
     | Error e -> Io.output @@ sprintf "Error: %s\n" e)
   in
   Io.Mocked.http_get t { Io.status = 200;
@@ -286,7 +286,7 @@ type lookup_result =
 
 let display_results results =
   List.iteri results ~f:(fun i r ->
-    Io.styled @@ sprintf "  %d. {action}%-10s{/} %s\n" (i + 1) r.key r.summary)
+    Io.styled @@ sprintf "  %d. {action}%-10s{/} %s\n" (i + 1) (Ticket.Key.to_string r.key) r.summary)
 
 let rec prompt_loop ~creds ~search_hint ~has_tags ~starred_projects ~log_date =
   let tag_opt = if has_tags then " | [s] split" else "" in
@@ -331,7 +331,7 @@ and handle_ticket_input ~creds ~starred_projects ~log_date ticket =
   Io.styled @@ sprintf "  {dim}Looking up %s...{/} " ticket;
   match lookup ~creds ~ticket with
   | Ok result ->
-    Io.styled @@ sprintf "\n  {action}%s{/}  %s\n" result.key result.summary;
+    Io.styled @@ sprintf "\n  {action}%s{/}  %s\n" (Ticket.Key.to_string result.key) result.summary;
     Io.styled "  {prompt}[Enter] confirm | [text] search again | [n] back:{/} ";
     (match Io.input () with
      | "" -> Some result
@@ -368,8 +368,9 @@ and search_and_display ~creds ~starred_projects ~log_date terms =
     end
 
 let lookup_cached_ticket ~creds ~ticket =
-  Io.styled @@ sprintf "  {dim}Looking up %s...{/} " ticket;
-  match lookup ~creds ~ticket with
+  let ticket_str = Ticket.Key.to_string ticket in
+  Io.styled @@ sprintf "  {dim}Looking up %s...{/} " ticket_str;
+  match lookup ~creds ~ticket:ticket_str with
   | Ok result ->
     Io.styled "{ok}OK{/}\n";
     Found result
@@ -385,7 +386,7 @@ let%expect_test "prompt_loop: search and select" =
     let outcome = prompt_loop ~creds ~search_hint:"coding"
       ~has_tags:false ~starred_projects:[] ~log_date:"2026-02-03" in
     match outcome with
-    | Selected r -> Io.output @@ sprintf "Selected: %s\n" r.key
+    | Selected r -> Io.output @@ sprintf "Selected: %s\n" (Ticket.Key.to_string r.key)
     | Skip_once -> Io.output "Skip_once\n"
     | Skip_always -> Io.output "Skip_always\n"
     | Split -> Io.output "Split\n")
@@ -410,7 +411,7 @@ let%expect_test "prompt_loop: direct ticket input" =
     let outcome = prompt_loop ~creds ~search_hint:"coding"
       ~has_tags:false ~starred_projects:[] ~log_date:"2026-02-03" in
     match outcome with
-    | Selected r -> Io.output @@ sprintf "Selected: %s\n" r.key
+    | Selected r -> Io.output @@ sprintf "Selected: %s\n" (Ticket.Key.to_string r.key)
     | Skip_once -> Io.output "Skip_once\n"
     | _ -> Io.output "other\n")
   in
@@ -433,7 +434,7 @@ let%expect_test "prompt_loop: ticket lookup fails then back" =
     let outcome = prompt_loop ~creds ~search_hint:"coding"
       ~has_tags:false ~starred_projects:[] ~log_date:"2026-02-03" in
     match outcome with
-    | Selected r -> Io.output @@ sprintf "Selected: %s\n" r.key
+    | Selected r -> Io.output @@ sprintf "Selected: %s\n" (Ticket.Key.to_string r.key)
     | Skip_once -> Io.output "Skip_once\n"
     | _ -> Io.output "other\n")
   in
@@ -520,7 +521,7 @@ let%expect_test "prompt_loop: search twice then select from second results" =
     let outcome = prompt_loop ~creds ~search_hint:"coding"
       ~has_tags:false ~starred_projects:[] ~log_date:"2026-02-03" in
     match outcome with
-    | Selected r -> Io.output @@ sprintf "Selected: %s\n" r.key
+    | Selected r -> Io.output @@ sprintf "Selected: %s\n" (Ticket.Key.to_string r.key)
     | Skip_once -> Io.output "Skip_once\n"
     | Skip_always -> Io.output "Skip_always\n"
     | Split -> Io.output "Split\n")
@@ -558,7 +559,7 @@ let%expect_test "prompt_loop: ticket pattern input from results list" =
     let outcome = prompt_loop ~creds ~search_hint:"coding"
       ~has_tags:false ~starred_projects:[] ~log_date:"2026-02-03" in
     match outcome with
-    | Selected r -> Io.output @@ sprintf "Selected: %s\n" r.key
+    | Selected r -> Io.output @@ sprintf "Selected: %s\n" (Ticket.Key.to_string r.key)
     | _ -> Io.output "other\n")
   in
   [%expect {| [Enter] search "coding" | [ticket/search] | [n] skip | [S] skip always: |}];
@@ -590,7 +591,7 @@ let%expect_test "prompt_loop: ticket pattern hint does lookup not search" =
     let outcome = prompt_loop ~creds ~search_hint:"DEV-42"
       ~has_tags:false ~starred_projects:[] ~log_date:"2026-02-03" in
     match outcome with
-    | Selected r -> Io.output @@ sprintf "Selected: %s\n" r.key
+    | Selected r -> Io.output @@ sprintf "Selected: %s\n" (Ticket.Key.to_string r.key)
     | _ -> Io.output "other\n")
   in
   [%expect {| [Enter] look up "DEV-42" | [ticket/search] | [n] skip | [S] skip always: |}];
@@ -609,8 +610,8 @@ let%expect_test "prompt_loop: ticket pattern hint does lookup not search" =
 let%expect_test "lookup_cached_ticket: success" =
   let creds = { Jira_api.base_url = "https://test.atlassian.net"; email = "u@t.com"; token = "t" } in
   let t = run_mocked (fun () ->
-    match lookup_cached_ticket ~creds ~ticket:"DEV-42" with
-    | Found r -> Io.output @@ sprintf "Found: %s - %s\n" r.key r.summary
+    match lookup_cached_ticket ~creds ~ticket:(Ticket.Key.of_string_exn "DEV-42") with
+    | Found r -> Io.output @@ sprintf "Found: %s - %s\n" (Ticket.Key.to_string r.key) r.summary
     | Not_found msg -> Io.output @@ sprintf "Not found: %s\n" msg)
   in
   Io.Mocked.http_get t { Io.status = 200;
@@ -624,7 +625,7 @@ let%expect_test "lookup_cached_ticket: success" =
 let%expect_test "lookup_cached_ticket: failure" =
   let creds = { Jira_api.base_url = "https://test.atlassian.net"; email = "u@t.com"; token = "t" } in
   let t = run_mocked (fun () ->
-    match lookup_cached_ticket ~creds ~ticket:"BAD-1" with
+    match lookup_cached_ticket ~creds ~ticket:(Ticket.Key.of_string_exn "BAD-1") with
     | Found _ -> Io.output "unexpected\n"
     | Not_found msg -> Io.output @@ sprintf "Not found: %s\n" msg)
   in
