@@ -420,8 +420,8 @@ let run ~config_path ~dates =
   let config =
     if String.is_empty config.jira_account_id then begin
       Io.output "Fetching Jira account ID... ";
-      let jira_creds = { Jira_api.base_url = config.jira_base_url;
-                         email = config.jira_email; token = config.jira_token } in
+      let jira_creds = Jira_api.make_creds ~base_url:config.jira_base_url
+                         ~email:config.jira_email ~token:config.jira_token in
       match Jira_api.fetch_account_id ~creds:jira_creds with
       | Ok account_id ->
         Io.styled @@ sprintf "{ok}OK{/} (%s)\n" account_id;
@@ -455,8 +455,8 @@ let run ~config_path ~dates =
   end else config in
 
   (* Build Tempo credentials *)
-  let tempo_creds = { Tempo_api.token = config.tempo_token;
-                      author_account_id = config.jira_account_id } in
+  let tempo_creds = Tempo_api.make_creds ~token:config.tempo_token
+                      ~author_account_id:config.jira_account_id in
 
   (* Discover Tempo work attribute keys if not cached *)
   let config =
@@ -502,8 +502,8 @@ let run ~config_path ~dates =
   Config.save ~path:config_path config |> Or_error.ok_exn;
 
   (* Build Jira credentials *)
-  let creds = { Jira_api.base_url = config.jira_base_url;
-                email = config.jira_email; token = config.jira_token } in
+  let creds = Jira_api.make_creds ~base_url:config.jira_base_url
+                ~email:config.jira_email ~token:config.jira_token in
   let starred_projects = Option.value ~default:[] config.starred_projects in
 
   (* Process each date *)

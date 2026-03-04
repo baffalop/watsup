@@ -5,6 +5,8 @@ type creds = {
   author_account_id : string;
 }
 
+let make_creds ~token ~author_account_id = { token; author_account_id }
+
 let tempo_headers ~creds = [
   ("Authorization", sprintf "Bearer %s" creds.token);
   ("Accept", "application/json");

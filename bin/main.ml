@@ -70,8 +70,8 @@ let () =
        || String.is_empty config.jira_email
        || String.is_empty config.jira_token then
       failwith "Jira credentials not configured. Run watsup once first to set them up.";
-    let creds = { Jira_api.base_url = config.jira_base_url;
-                  email = config.jira_email; token = config.jira_token } in
+    let creds = Jira_api.make_creds ~base_url:config.jira_base_url
+                  ~email:config.jira_email ~token:config.jira_token in
     let starred_projects = Option.value ~default:[] config.starred_projects in
     let log_date = today () in
     Io.with_stdio (fun () ->

@@ -152,7 +152,7 @@ let parse_single_issue body =
 let search ~creds ~jql =
   let encoded_jql = Uri.pct_encode jql in
   let url = sprintf "%s/rest/api/3/search/jql?jql=%s&maxResults=5&fields=summary"
-    creds.Jira_api.base_url encoded_jql in
+    (Jira_api.base_url creds) encoded_jql in
   let headers = [Jira_api.auth_header ~creds;
                  ("Accept", "application/json")] in
   let response = Io.http_get ~url ~headers in
@@ -163,7 +163,7 @@ let search ~creds ~jql =
 
 let lookup ~creds ~ticket =
   let url = sprintf "%s/rest/api/3/issue/%s?fields=summary"
-    creds.Jira_api.base_url (Uri.pct_encode ticket) in
+    (Jira_api.base_url creds) (Uri.pct_encode ticket) in
   let headers = [Jira_api.auth_header ~creds;
                  ("Accept", "application/json")] in
   let response = Io.http_get ~url ~headers in
@@ -225,7 +225,7 @@ let run_mocked f =
         continue k ()
 
 let%expect_test "search: success" =
-  let creds = { Jira_api.base_url = "https://test.atlassian.net"; email = "u@t.com"; token = "t" } in
+  let creds = Jira_api.make_creds ~base_url:"https://test.atlassian.net" ~email:"u@t.com" ~token:"t" in
   let t = run_mocked (fun () ->
     match search ~creds ~jql:{|text ~ "coding"|} with
     | Ok results ->
@@ -239,7 +239,7 @@ let%expect_test "search: success" =
   Io.Mocked.finish t
 
 let%expect_test "search: API error" =
-  let creds = { Jira_api.base_url = "https://test.atlassian.net"; email = "u@t.com"; token = "t" } in
+  let creds = Jira_api.make_creds ~base_url:"https://test.atlassian.net" ~email:"u@t.com" ~token:"t" in
   let t = run_mocked (fun () ->
     match search ~creds ~jql:{|text ~ "test"|} with
     | Ok _ -> Io.output "unexpected success\n"
@@ -250,7 +250,7 @@ let%expect_test "search: API error" =
   Io.Mocked.finish t
 
 let%expect_test "lookup: success" =
-  let creds = { Jira_api.base_url = "https://test.atlassian.net"; email = "u@t.com"; token = "t" } in
+  let creds = Jira_api.make_creds ~base_url:"https://test.atlassian.net" ~email:"u@t.com" ~token:"t" in
   let t = run_mocked (fun () ->
     match lookup ~creds ~ticket:"DEV-123" with
     | Ok r -> Io.output @@ sprintf "%s: %s (id=%d)\n" (Ticket.Key.to_string r.key) r.summary r.id
@@ -262,7 +262,7 @@ let%expect_test "lookup: success" =
   Io.Mocked.finish t
 
 let%expect_test "lookup: not found" =
-  let creds = { Jira_api.base_url = "https://test.atlassian.net"; email = "u@t.com"; token = "t" } in
+  let creds = Jira_api.make_creds ~base_url:"https://test.atlassian.net" ~email:"u@t.com" ~token:"t" in
   let t = run_mocked (fun () ->
     match lookup ~creds ~ticket:"BAD-999" with
     | Ok _ -> Io.output "unexpected\n"
@@ -381,7 +381,7 @@ let lookup_cached_ticket ~creds ~ticket =
 (* === Mocked IO tests for prompt loop === *)
 
 let%expect_test "prompt_loop: search and select" =
-  let creds = { Jira_api.base_url = "https://test.atlassian.net"; email = "u@t.com"; token = "t" } in
+  let creds = Jira_api.make_creds ~base_url:"https://test.atlassian.net" ~email:"u@t.com" ~token:"t" in
   let t = run_mocked (fun () ->
     let outcome = prompt_loop ~creds ~search_hint:"coding"
       ~has_tags:false ~starred_projects:[] ~log_date:"2026-02-03" in
@@ -406,7 +406,7 @@ let%expect_test "prompt_loop: search and select" =
   Io.Mocked.finish t
 
 let%expect_test "prompt_loop: direct ticket input" =
-  let creds = { Jira_api.base_url = "https://test.atlassian.net"; email = "u@t.com"; token = "t" } in
+  let creds = Jira_api.make_creds ~base_url:"https://test.atlassian.net" ~email:"u@t.com" ~token:"t" in
   let t = run_mocked (fun () ->
     let outcome = prompt_loop ~creds ~search_hint:"coding"
       ~has_tags:false ~starred_projects:[] ~log_date:"2026-02-03" in
@@ -429,7 +429,7 @@ let%expect_test "prompt_loop: direct ticket input" =
   Io.Mocked.finish t
 
 let%expect_test "prompt_loop: ticket lookup fails then back" =
-  let creds = { Jira_api.base_url = "https://test.atlassian.net"; email = "u@t.com"; token = "t" } in
+  let creds = Jira_api.make_creds ~base_url:"https://test.atlassian.net" ~email:"u@t.com" ~token:"t" in
   let t = run_mocked (fun () ->
     let outcome = prompt_loop ~creds ~search_hint:"coding"
       ~has_tags:false ~starred_projects:[] ~log_date:"2026-02-03" in
@@ -453,7 +453,7 @@ let%expect_test "prompt_loop: ticket lookup fails then back" =
   Io.Mocked.finish t
 
 let%expect_test "prompt_loop: skip once" =
-  let creds = { Jira_api.base_url = "https://test.atlassian.net"; email = "u@t.com"; token = "t" } in
+  let creds = Jira_api.make_creds ~base_url:"https://test.atlassian.net" ~email:"u@t.com" ~token:"t" in
   let t = run_mocked (fun () ->
     let outcome = prompt_loop ~creds ~search_hint:"coding"
       ~has_tags:false ~starred_projects:[] ~log_date:"2026-02-03" in
@@ -467,7 +467,7 @@ let%expect_test "prompt_loop: skip once" =
   Io.Mocked.finish t
 
 let%expect_test "prompt_loop: skip always" =
-  let creds = { Jira_api.base_url = "https://test.atlassian.net"; email = "u@t.com"; token = "t" } in
+  let creds = Jira_api.make_creds ~base_url:"https://test.atlassian.net" ~email:"u@t.com" ~token:"t" in
   let t = run_mocked (fun () ->
     let outcome = prompt_loop ~creds ~search_hint:"coding"
       ~has_tags:false ~starred_projects:[] ~log_date:"2026-02-03" in
@@ -481,7 +481,7 @@ let%expect_test "prompt_loop: skip always" =
   Io.Mocked.finish t
 
 let%expect_test "prompt_loop: split" =
-  let creds = { Jira_api.base_url = "https://test.atlassian.net"; email = "u@t.com"; token = "t" } in
+  let creds = Jira_api.make_creds ~base_url:"https://test.atlassian.net" ~email:"u@t.com" ~token:"t" in
   let t = run_mocked (fun () ->
     let outcome = prompt_loop ~creds ~search_hint:"coding"
       ~has_tags:true ~starred_projects:[] ~log_date:"2026-02-03" in
@@ -495,7 +495,7 @@ let%expect_test "prompt_loop: split" =
   Io.Mocked.finish t
 
 let%expect_test "prompt_loop: no results" =
-  let creds = { Jira_api.base_url = "https://test.atlassian.net"; email = "u@t.com"; token = "t" } in
+  let creds = Jira_api.make_creds ~base_url:"https://test.atlassian.net" ~email:"u@t.com" ~token:"t" in
   let t = run_mocked (fun () ->
     let outcome = prompt_loop ~creds ~search_hint:"nonexistent"
       ~has_tags:false ~starred_projects:[] ~log_date:"2026-02-03" in
@@ -516,7 +516,7 @@ let%expect_test "prompt_loop: no results" =
   Io.Mocked.finish t
 
 let%expect_test "prompt_loop: search twice then select from second results" =
-  let creds = { Jira_api.base_url = "https://test.atlassian.net"; email = "u@t.com"; token = "t" } in
+  let creds = Jira_api.make_creds ~base_url:"https://test.atlassian.net" ~email:"u@t.com" ~token:"t" in
   let t = run_mocked (fun () ->
     let outcome = prompt_loop ~creds ~search_hint:"coding"
       ~has_tags:false ~starred_projects:[] ~log_date:"2026-02-03" in
@@ -554,7 +554,7 @@ let%expect_test "prompt_loop: search twice then select from second results" =
   Io.Mocked.finish t
 
 let%expect_test "prompt_loop: ticket pattern input from results list" =
-  let creds = { Jira_api.base_url = "https://test.atlassian.net"; email = "u@t.com"; token = "t" } in
+  let creds = Jira_api.make_creds ~base_url:"https://test.atlassian.net" ~email:"u@t.com" ~token:"t" in
   let t = run_mocked (fun () ->
     let outcome = prompt_loop ~creds ~search_hint:"coding"
       ~has_tags:false ~starred_projects:[] ~log_date:"2026-02-03" in
@@ -586,7 +586,7 @@ let%expect_test "prompt_loop: ticket pattern input from results list" =
   Io.Mocked.finish t
 
 let%expect_test "prompt_loop: ticket pattern hint does lookup not search" =
-  let creds = { Jira_api.base_url = "https://test.atlassian.net"; email = "u@t.com"; token = "t" } in
+  let creds = Jira_api.make_creds ~base_url:"https://test.atlassian.net" ~email:"u@t.com" ~token:"t" in
   let t = run_mocked (fun () ->
     let outcome = prompt_loop ~creds ~search_hint:"DEV-42"
       ~has_tags:false ~starred_projects:[] ~log_date:"2026-02-03" in
@@ -608,7 +608,7 @@ let%expect_test "prompt_loop: ticket pattern hint does lookup not search" =
   Io.Mocked.finish t
 
 let%expect_test "lookup_cached_ticket: success" =
-  let creds = { Jira_api.base_url = "https://test.atlassian.net"; email = "u@t.com"; token = "t" } in
+  let creds = Jira_api.make_creds ~base_url:"https://test.atlassian.net" ~email:"u@t.com" ~token:"t" in
   let t = run_mocked (fun () ->
     match lookup_cached_ticket ~creds ~ticket:(Ticket.Key.of_string_exn "DEV-42") with
     | Found r -> Io.output @@ sprintf "Found: %s - %s\n" (Ticket.Key.to_string r.key) r.summary
@@ -623,7 +623,7 @@ let%expect_test "lookup_cached_ticket: success" =
   Io.Mocked.finish t
 
 let%expect_test "lookup_cached_ticket: failure" =
-  let creds = { Jira_api.base_url = "https://test.atlassian.net"; email = "u@t.com"; token = "t" } in
+  let creds = Jira_api.make_creds ~base_url:"https://test.atlassian.net" ~email:"u@t.com" ~token:"t" in
   let t = run_mocked (fun () ->
     match lookup_cached_ticket ~creds ~ticket:(Ticket.Key.of_string_exn "BAD-1") with
     | Found _ -> Io.output "unexpected\n"

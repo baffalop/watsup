@@ -6,6 +6,9 @@ type creds = {
   token : string;
 }
 
+let make_creds ~base_url ~email ~token = { base_url; email; token }
+let base_url creds = creds.base_url
+
 let auth_header ~creds =
   let encoded = Base64.encode_exn (sprintf "%s:%s" creds.email creds.token) in
   ("Authorization", sprintf "Basic %s" encoded)
