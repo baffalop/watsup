@@ -1,13 +1,19 @@
 open Core
 
-let auth_header ~email ~token =
-  let encoded = Base64.encode_exn (sprintf "%s:%s" email token) in
+type creds = {
+  base_url : string;
+  email : string;
+  token : string;
+}
+
+let auth_header ~creds =
+  let encoded = Base64.encode_exn (sprintf "%s:%s" creds.email creds.token) in
   ("Authorization", sprintf "Basic %s" encoded)
 
-let fetch_account_id ~config =
-  let url = sprintf "%s/rest/api/2/myself" config.Config.jira_base_url in
+let fetch_account_id ~creds =
+  let url = sprintf "%s/rest/api/2/myself" creds.base_url in
   let headers = [
-    auth_header ~email:config.jira_email ~token:config.jira_token;
+    auth_header ~creds;
     ("Accept", "application/json");
   ] in
   let response = Io.http_get ~url ~headers in
@@ -51,10 +57,10 @@ let parse_issue_info_json json =
   in
   (issue_id, account_key)
 
-let fetch_issue_info ~config ~ticket =
-  let url = sprintf "%s/rest/api/2/issue/%s?expand=names" config.Config.jira_base_url ticket in
+let fetch_issue_info ~creds ~ticket =
+  let url = sprintf "%s/rest/api/2/issue/%s?expand=names" creds.base_url ticket in
   let headers = [
-    auth_header ~email:config.jira_email ~token:config.jira_token;
+    auth_header ~creds;
     ("Accept", "application/json");
   ] in
   let response = Io.http_get ~url ~headers in

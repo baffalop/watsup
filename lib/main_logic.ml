@@ -316,7 +316,7 @@ let run_day ~config_path:_ ~config ~creds ~starred_projects ~date =
               | Some id, Some key -> (id, Some key, cfg)
               | _ ->
                 Io.styled @@ sprintf "  {dim}Looking up %s...{/} " ticket;
-                match Jira_api.fetch_issue_info ~config:cfg ~ticket with
+                match Jira_api.fetch_issue_info ~creds ~ticket with
                 | Ok (id, account_id) ->
                   let cfg = Config.set_issue_id cfg ticket id in
                   let account_key, cfg = match account_id with
@@ -419,7 +419,9 @@ let run ~config_path ~dates =
   let config =
     if String.is_empty config.jira_account_id then begin
       Io.output "Fetching Jira account ID... ";
-      match Jira_api.fetch_account_id ~config with
+      let jira_creds = { Jira_api.base_url = config.jira_base_url;
+                         email = config.jira_email; token = config.jira_token } in
+      match Jira_api.fetch_account_id ~creds:jira_creds with
       | Ok account_id ->
         Io.styled @@ sprintf "{ok}OK{/} (%s)\n" account_id;
         { config with jira_account_id = account_id }
@@ -494,8 +496,8 @@ let run ~config_path ~dates =
   (* Save config after category selection *)
   Config.save ~path:config_path config |> Or_error.ok_exn;
 
-  (* Build Jira search credentials *)
-  let creds = { Jira_search.base_url = config.jira_base_url;
+  (* Build Jira credentials *)
+  let creds = { Jira_api.base_url = config.jira_base_url;
                 email = config.jira_email; token = config.jira_token } in
   let starred_projects = Option.value ~default:[] config.starred_projects in
 

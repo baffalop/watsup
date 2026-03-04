@@ -1,5 +1,6 @@
 module Config = Watsup.Config
 module Io = Watsup.Io
+module Jira_api = Watsup.Jira_api
 module Jira_search = Watsup.Jira_search
 module Main_logic = Watsup.Main_logic
 module Ticket = Watsup.Ticket
@@ -69,7 +70,7 @@ let () =
        || String.is_empty config.jira_email
        || String.is_empty config.jira_token then
       failwith "Jira credentials not configured. Run watsup once first to set them up.";
-    let creds = { Jira_search.base_url = config.jira_base_url;
+    let creds = { Jira_api.base_url = config.jira_base_url;
                   email = config.jira_email; token = config.jira_token } in
     let starred_projects = Option.value ~default:[] config.starred_projects in
     let log_date = today () in
