@@ -107,6 +107,8 @@ let%expect_test "display_watson_report: empty" =
     (BTotal: (G0m/)
     |}]
 
+type category_handling = Normal | Force_fresh | Skip_all
+
 let run_day ~config_path:_ ~config ~creds ~tempo_creds ~starred_projects ~date =
   (* Parse watson report *)
   let watson_cmd = sprintf "watson report -G -f %s -t %s" date date in
@@ -121,6 +123,12 @@ let run_day ~config_path:_ ~config ~creds ~tempo_creds ~starred_projects ~date =
     let accept_tag acc cfg composite_key tag (ticket : Ticket.Key.t) =
       let description = Prompt.description ticket in
       let cfg = Config.set_mapping cfg composite_key (Config.Ticket ticket) in
+      let cfg = match cfg.categories with
+        | Some { options; _ } when not (String.is_empty cfg.tempo_category_attr_key)
+            && not (List.is_empty options) ->
+          Prompt.category ~config:cfg ~options ticket
+        | _ -> cfg
+      in
       (Processor.Post {
         ticket; duration = Duration.round_5min tag.Watson.duration;
         source = sprintf "%s:%s" entry.Watson.project tag.Watson.name; description;
@@ -163,7 +171,8 @@ let run_day ~config_path:_ ~config ~creds ~tempo_creds ~starred_projects ~date =
     (* Clear project-level mapping now that composite keys are set *)
     let cfg = { cfg with mappings =
       List.Assoc.remove cfg.mappings ~equal:String.equal entry.Watson.project } in
-    (List.rev decisions, cfg, false)
+    (* always Skip_all: categories were prompted inline per tag in accept_tag *)
+    (List.rev decisions, cfg, Skip_all)
   in
 
   let run_uncached cfg entry =
@@ -174,11 +183,11 @@ let run_day ~config_path:_ ~config ~creds ~tempo_creds ~starred_projects ~date =
       ([Processor.Post {
         ticket; duration = Duration.round_5min entry.Watson.total;
         source = entry.Watson.project; description;
-      }], cfg, false)
-    | Processor.Skip_once -> ([], cfg, false)
+      }], cfg, Normal)
+    | Processor.Skip_once -> ([], cfg, Normal)
     | Processor.Skip_always ->
       let cfg = Config.set_mapping cfg entry.Watson.project Config.Skip in
-      ([Processor.Skip { project = entry.Watson.project; duration = entry.Watson.total }], cfg, false)
+      ([Processor.Skip { project = entry.Watson.project; duration = entry.Watson.total }], cfg, Normal)
     | Processor.Split ->
       handle_split_tags cfg entry
   in
@@ -194,7 +203,7 @@ let run_day ~config_path:_ ~config ~creds ~tempo_creds ~starred_projects ~date =
         source = entry.Watson.project; description;
       }] in
       let cfg = Config.set_mapping cfg entry.Watson.project (Config.Ticket ticket) in
-      (decisions, cfg, false)
+      (decisions, cfg, Normal)
     | Split, _ ->
       handle_split_tags cfg entry
     | Change_ticket, false ->
@@ -209,8 +218,8 @@ let run_day ~config_path:_ ~config ~creds ~tempo_creds ~starred_projects ~date =
         source = entry.Watson.project; description;
       }] in
       let cfg = Config.set_mapping cfg entry.project (Config.Ticket ticket) in
-      (decisions, cfg, true)
-    | Skip_once, _ -> ([], cfg, false)
+      (decisions, cfg, Force_fresh)
+    | Skip_once, _ -> ([], cfg, Normal)
   in
 
   (* Process each entry *)
@@ -223,7 +232,7 @@ let run_day ~config_path:_ ~config ~creds ~tempo_creds ~starred_projects ~date =
       show_entry_context entry;
 
       (* Dispatch based on resolution *)
-      let decisions, cfg, force_category_change = match resolution with
+      let decisions, cfg, category_handling = match resolution with
         | Processor.Project_cached ticket ->
           handle_cached_entry cfg entry ~ticket
         | Processor.Tag_inferred ticket ->
@@ -239,25 +248,29 @@ let run_day ~config_path:_ ~config ~creds ~tempo_creds ~starred_projects ~date =
              let decisions = [Processor.Skip {
                project = entry.project; duration = entry.total;
              }] in
-             (decisions, cfg, false))
+             (decisions, cfg, Normal))
         | Processor.Uncached ->
           run_uncached cfg entry
       in
 
       (* Category prompting for each Post decision *)
-      let cfg = match cfg.categories with
-        | Some { options; _ } when not (String.is_empty cfg.tempo_category_attr_key)
+      let cfg = match category_handling, cfg.categories with
+        | Skip_all, _ -> cfg  (* each tag's category was already prompted inline inside accept_tag *)
+        | _, Some { options; _ } when not (String.is_empty cfg.tempo_category_attr_key)
             && not (List.is_empty options) ->
           List.fold decisions ~init:cfg ~f:(fun c -> function
             | Processor.Post { ticket; _ } ->
-              if force_category_change then begin
-                Io.output @@ sprintf "  %s category:\n" (Ticket.Key.to_string ticket);
-                let value = Prompt.category_list ~options ~current_value:None in
-                Config.set_category_selection c ticket value
-              end else
-                Prompt.category ~config:c ~options ticket
+              (match category_handling with
+               | Force_fresh ->
+                 Io.styled @@ sprintf "  {key}%s{/} {prompt}category:{/}\n"
+                   (Ticket.Key.to_string ticket);
+                 let value = Prompt.category_list ~options ~current_value:None in
+                 Config.set_category_selection c ticket value
+               | Normal ->
+                 Prompt.category ~config:c ~options ticket
+               | Skip_all -> c (* unreachable: outer match arm above returns cfg before this fold *))
             | Processor.Skip _ -> c)
-        | _ -> cfg
+        | _, _ -> cfg
       in
       (List.rev_append decisions acc_decisions, cfg))
   in

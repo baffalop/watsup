@@ -379,6 +379,15 @@ let%expect_test "comprehensive interactive flow" =
     input t "";
     [%expect {| Description for DEV-101 (optional): |}];
     input t "review work";
+    (* DEV-101 category — inline after description *)
+    [%expect {|
+      DEV-101 category:
+        1. Development
+        2. Meeting
+        3. Support
+      >
+      |}];
+    input t "1";
     (* DEV-202 tag: auto-detected ticket pattern, lookup *)
     [%expect {| [DEV-202  10m]   Looking up DEV-202... |}];
     http_get t (jira_issue_response ~key:"DEV-202" ~summary:"Dev task 202" ~id:202);
@@ -389,16 +398,7 @@ let%expect_test "comprehensive interactive flow" =
     input t "";
     [%expect {| Description for DEV-202 (optional): |}];
     input t "";
-    (* Category for DEV-101 *)
-    [%expect {|
-      DEV-101 category:
-        1. Development
-        2. Meeting
-        3. Support
-      >
-      |}];
-    input t "1";
-    (* Category for DEV-202 *)
+    (* DEV-202 category — inline after description *)
     [%expect {|
       DEV-202 category:
         1. Development
@@ -495,6 +495,15 @@ let%expect_test "cached mappings: ticket and skip (cr uncached)" =
     input t "";
     [%expect {| Description for DEV-101 (optional): |}];
     input t "";
+    (* DEV-101 category — inline after description *)
+    [%expect {|
+      DEV-101 category:
+        1. Development
+        2. Meeting
+        3. Support
+      >
+      |}];
+    input t "1";
     (* DEV-202 tag: auto-detected ticket pattern, lookup *)
     [%expect {| [DEV-202  10m]   Looking up DEV-202... |}];
     http_get t (jira_issue_response ~key:"DEV-202" ~summary:"Dev task 202" ~id:202);
@@ -505,14 +514,7 @@ let%expect_test "cached mappings: ticket and skip (cr uncached)" =
     input t "";
     [%expect {| Description for DEV-202 (optional): |}];
     input t "";
-    [%expect {|
-      DEV-101 category:
-        1. Development
-        2. Meeting
-        3. Support
-      >
-      |}];
-    input t "1";
+    (* DEV-202 category — inline after description *)
     [%expect {|
       DEV-202 category:
         1. Development
@@ -891,6 +893,15 @@ Total: 1h 20m 02s|} in
     input t "";
     [%expect {| Description for DEV-101 (optional): |}];
     input t "review of DEV-101";
+    (* DEV-101 category — inline after description *)
+    [%expect {|
+      DEV-101 category:
+        1. Development
+        2. Meeting
+        3. Support
+      >
+      |}];
+    input t "1";
     (* review: uncached non-ticket tag, search prompt *)
     [%expect {| [review   10m]   [Enter] search "cr review" | [ticket/search] | [n] skip | [S] skip always: |}];
     input t "REVIEW-55";
@@ -903,23 +914,7 @@ Total: 1h 20m 02s|} in
     input t "";
     [%expect {| Description for REVIEW-55 (optional): |}];
     input t "code review";
-    (* DEV-202: auto-detected ticket pattern, lookup *)
-    [%expect {| [DEV-202  35m]   Looking up DEV-202... |}];
-    http_get t (jira_issue_response ~key:"DEV-202" ~summary:"Dev task 202" ~id:202);
-    [%expect {|
-      OK
-      [-> DEV-202 "Dev task 202"] [Enter] keep | [t] change | [n] skip:
-      |}];
-    input t "n";
-    (* Categories for DEV-101 and REVIEW-55 *)
-    [%expect {|
-      DEV-101 category:
-        1. Development
-        2. Meeting
-        3. Support
-      >
-      |}];
-    input t "1";
+    (* REVIEW-55 category — inline after description *)
     [%expect {|
       REVIEW-55 category:
         1. Development
@@ -928,6 +923,14 @@ Total: 1h 20m 02s|} in
       >
       |}];
     input t "2";
+    (* DEV-202: auto-detected ticket pattern, lookup *)
+    [%expect {| [DEV-202  35m]   Looking up DEV-202... |}];
+    http_get t (jira_issue_response ~key:"DEV-202" ~summary:"Dev task 202" ~id:202);
+    [%expect {|
+      OK
+      [-> DEV-202 "Dev task 202"] [Enter] keep | [t] change | [n] skip:
+      |}];
+    input t "n";
     (* Summary + skip *)
     [%expect {|
       === Summary ===
