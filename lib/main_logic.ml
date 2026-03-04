@@ -106,7 +106,7 @@ let%expect_test "display_watson_report: empty" =
     (BTotal: (G0m/)
     |}]
 
-let run_day ~config_path:_ ~config ~creds ~starred_projects ~date =
+let run_day ~config_path:_ ~config ~creds ~tempo_creds ~starred_projects ~date =
   (* Parse watson report *)
   let watson_cmd = sprintf "watson report -G -f %s -t %s" date date in
   let watson_output = Io.run_command watson_cmd in
@@ -321,7 +321,7 @@ let run_day ~config_path:_ ~config ~creds ~starred_projects ~date =
                   let cfg = Config.set_issue_id cfg ticket id in
                   let account_key, cfg = match account_id with
                     | Some acct_id ->
-                      (match Tempo_api.fetch_account_key ~token:cfg.tempo_token ~account_id:acct_id with
+                      (match Tempo_api.fetch_account_key ~creds:tempo_creds ~account_id:acct_id with
                        | Ok key ->
                          Io.styled @@ sprintf "{ok}OK{/} (id=%d, account=%s)\n" id key;
                          (Some key, Config.set_account_key cfg ticket key)
@@ -351,9 +351,8 @@ let run_day ~config_path:_ ~config ~creds ~starred_projects ~date =
                  | _ -> [])
             in
             let response =
-              Tempo_api.post_worklog ~token:cfg.tempo_token
-                ~issue_id ~author_account_id:cfg.jira_account_id
-                ~duration ~date ~description ~attributes in
+              Tempo_api.post_worklog ~creds:tempo_creds
+                ~issue_id ~duration ~date ~description ~attributes in
             let success = response.Io.status >= 200 && response.status < 300 in
             if success then
               Io.styled @@ sprintf "{ok}%s: OK{/}\n" ticket
@@ -453,11 +452,15 @@ let run ~config_path ~dates =
     config
   end else config in
 
+  (* Build Tempo credentials *)
+  let tempo_creds = { Tempo_api.token = config.tempo_token;
+                      author_account_id = config.jira_account_id } in
+
   (* Discover Tempo work attribute keys if not cached *)
   let config =
     if String.is_empty config.tempo_account_attr_key
        || String.is_empty config.tempo_category_attr_key then begin
-      match Tempo_api.fetch_work_attribute_keys ~token:config.tempo_token with
+      match Tempo_api.fetch_work_attribute_keys ~creds:tempo_creds with
       | Ok (account_key, category_key) ->
         let cfg = match account_key with
           | Some k when String.is_empty config.tempo_account_attr_key ->
@@ -478,7 +481,7 @@ let run ~config_path ~dates =
     match config.categories with
     | Some _ -> config
     | None when not @@ String.is_empty config.tempo_category_attr_key -> (
-      match Tempo_api.fetch_category_options ~token:config.tempo_token
+      match Tempo_api.fetch_category_options ~creds:tempo_creds
           ~attr_key:config.tempo_category_attr_key with
        | Ok options ->
          { config with categories = Some {
@@ -507,7 +510,7 @@ let run ~config_path ~dates =
     List.fold dates ~init:config ~f:(fun cfg date ->
       if multi_day then
         Io.styled @@ sprintf "\n{header}=== %s ==={/}\n" date;
-      run_day ~config_path ~config:cfg ~creds ~starred_projects ~date)
+      run_day ~config_path ~config:cfg ~creds ~tempo_creds ~starred_projects ~date)
   in
 
   (* Save final config *)

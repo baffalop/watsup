@@ -1,7 +1,12 @@
 open Core
 
-let tempo_headers ~token = [
-  ("Authorization", sprintf "Bearer %s" token);
+type creds = {
+  token : string;
+  author_account_id : string;
+}
+
+let tempo_headers ~creds = [
+  ("Authorization", sprintf "Bearer %s" creds.token);
   ("Accept", "application/json");
 ]
 
@@ -19,9 +24,9 @@ let parse_work_attribute_keys_json json =
     Ok (find_key ~substring:"account", find_key ~substring:"category")
   | _ -> Error "Unexpected work-attributes response format"
 
-let fetch_work_attribute_keys ~token =
+let fetch_work_attribute_keys ~creds =
   let url = "https://api.tempo.io/4/work-attributes" in
-  let headers = tempo_headers ~token in
+  let headers = tempo_headers ~creds in
   let response = Io.http_get ~url ~headers in
   if response.status >= 200 && response.status < 300 then
     parse_work_attribute_keys_json (Yojson.Safe.from_string response.body)
@@ -52,9 +57,9 @@ let parse_category_options_json json =
   |> List.map ~f:(fun (value, name) -> Category.make ~value ~name)
   |> Result.return
 
-let fetch_category_options ~token ~attr_key =
+let fetch_category_options ~creds ~attr_key =
   let url = sprintf "https://api.tempo.io/4/work-attributes/%s" attr_key in
-  let headers = tempo_headers ~token in
+  let headers = tempo_headers ~creds in
   let response = Io.http_get ~url ~headers in
   if response.status >= 200 && response.status < 300 then
     parse_category_options_json (Yojson.Safe.from_string response.body)
@@ -63,9 +68,9 @@ let fetch_category_options ~token ~attr_key =
       response.status response.body
 
 (* Look up Tempo account key by numeric ID *)
-let fetch_account_key ~token ~account_id =
+let fetch_account_key ~creds ~account_id =
   let url = sprintf "https://api.tempo.io/4/accounts/%s" account_id in
-  let headers = tempo_headers ~token in
+  let headers = tempo_headers ~creds in
   let response = Io.http_get ~url ~headers in
   if response.status >= 200 && response.status < 300 then
     let json = Yojson.Safe.from_string response.body in
@@ -95,14 +100,14 @@ let build_worklog_json ~issue_id ~author_account_id ~duration_seconds ~date ~des
   in
   to_string (`Assoc fields)
 
-let post_worklog ~token ~issue_id ~author_account_id ~duration ~date ~description ~attributes =
+let post_worklog ~creds ~issue_id ~duration ~date ~description ~attributes =
   let url = "https://api.tempo.io/4/worklogs" in
   let headers = [
-    ("Authorization", sprintf "Bearer %s" token);
+    ("Authorization", sprintf "Bearer %s" creds.token);
     ("Content-Type", "application/json");
   ] in
   let duration_seconds = Duration.to_seconds duration in
-  let body = build_worklog_json ~issue_id ~author_account_id ~duration_seconds ~date ~description ~attributes in
+  let body = build_worklog_json ~issue_id ~author_account_id:creds.author_account_id ~duration_seconds ~date ~description ~attributes in
   Io.http_post ~url ~headers ~body
 
 let%expect_test "build_worklog_json: without attributes" =
