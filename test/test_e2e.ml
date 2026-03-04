@@ -47,6 +47,8 @@ let start ~config_path ?(watson_output=[(test_date, sample_watson_report)]) f =
     | effect Io.Output s, k ->
         print_string @@ normalize s;
         continue k ()
+    | effect (Io.Set_color _), k ->
+        continue k ()
     | effect Io.Run_command cmd, k ->
         continue k @@ run_cmd cmd
 
@@ -125,6 +127,12 @@ Total: 1h 00m 00s|} in
     }|} };
     (* Now watson report is processed, entry prompt with Jira search *)
     [%expect {|
+      Mon 03 February 2026 -> Mon 03 February 2026
+
+      coding - 1h
+
+      Total: 1h
+
       coding - 1h
         [Enter] search "coding" | [ticket/search] | [n] skip | [S] skip always:
       |}];
@@ -153,7 +161,7 @@ Total: 1h 00m 00s|} in
     [%expect {|
       === Summary ===
       Post:
-        PROJ-123   (1h)  [Development]  coding  "first run work"
+        coding     (1h)  PROJ-123  [Development]  "first run work"
       Total: 1h
 
       [Enter] post | [n] skip day:
@@ -203,6 +211,14 @@ Total: 2h 45m 00s|} in
       Main_logic.run ~config_path ~dates:["2026-02-03"])
     in
     [%expect {|
+      Mon 03 February 2026 -> Mon 03 February 2026
+
+      coding - 1h
+
+      breaks - 30m
+
+      Total: 1h 30m
+
       coding - 1h
         [Enter] search "coding" | [ticket/search] | [n] skip | [S] skip always:
       |}];
@@ -233,7 +249,7 @@ Total: 2h 45m 00s|} in
     [%expect {|
       === Summary ===
       Post:
-        PROJ-123   (1h)  [Development]  coding  "day one work"
+        coding     (1h)  PROJ-123  [Development]  "day one work"
       Skip:
         breaks     (30m)
       Total: 1h
@@ -248,7 +264,17 @@ Total: 2h 45m 00s|} in
       Main_logic.run ~config_path ~dates:["2026-02-04"])
     in
     (* coding: cached ticket prompt — now does lookup first *)
-    [%expect {| coding - 2h  Looking up PROJ-123... |}];
+    [%expect {|
+      Tue 04 February 2026 -> Tue 04 February 2026
+
+      coding - 2h
+
+      breaks - 45m
+
+      Total: 2h 45m
+
+      coding - 2h  Looking up PROJ-123...
+      |}];
     http_get t2 (jira_issue_response ~key:"PROJ-123" ~summary:"Project task" ~id:12345);
     [%expect {|
       OK
@@ -273,7 +299,7 @@ Total: 2h 45m 00s|} in
     [%expect {|
       === Summary ===
       Post:
-        PROJ-123   (2h)  [Development]  coding
+        coding     (2h)  PROJ-123  [Development]
       Skip:
         breaks     (45m)
       Total: 2h
@@ -293,6 +319,20 @@ let%expect_test "comprehensive interactive flow" =
     in
     (* architecture: assign ticket via search prompt *)
     [%expect {|
+      Tue 03 February 2026 -> Tue 03 February 2026
+
+      architecture - 25m
+
+      breaks - 1h 20m
+      [coffee   20m]
+      [lunch    59m]
+
+      cr - 51m
+      [DEV-101  33m]
+      [DEV-202  12m]
+
+      Total: 2h 37m
+
       architecture - 25m
         [Enter] search "architecture" | [ticket/search] | [n] skip | [S] skip always:
       |}];
@@ -371,9 +411,9 @@ let%expect_test "comprehensive interactive flow" =
     [%expect {|
       === Summary ===
       Post:
-        ARCH-1     (25m)  [Development]  architecture  "arch work"
-        DEV-101    (35m)  [Development]  cr:DEV-101  "review work"
-        DEV-202    (10m)  [Meeting]  cr:DEV-202
+        architecture (25m)  ARCH-1  [Development]  "arch work"
+        cr:DEV-101 (35m)  DEV-101  [Development]  "review work"
+        cr:DEV-202 (10m)  DEV-202  [Meeting]
       Total: 1h 10m
 
       [Enter] post | [n] skip day:
@@ -396,7 +436,23 @@ let%expect_test "cached mappings: ticket and skip (cr uncached)" =
       Main_logic.run ~config_path ~dates:[test_date])
     in
     (* architecture: cached ticket prompt — lookup first *)
-    [%expect {| architecture - 25m  Looking up ARCH-1... |}];
+    [%expect {|
+      Tue 03 February 2026 -> Tue 03 February 2026
+
+      architecture - 25m
+
+      breaks - 1h 20m
+      [coffee   20m]
+      [lunch    59m]
+
+      cr - 51m
+      [DEV-101  33m]
+      [DEV-202  12m]
+
+      Total: 2h 37m
+
+      architecture - 25m  Looking up ARCH-1...
+      |}];
     http_get t (jira_issue_response ~key:"ARCH-1" ~summary:"Architecture task" ~id:100);
     [%expect {|
       OK
@@ -468,9 +524,9 @@ let%expect_test "cached mappings: ticket and skip (cr uncached)" =
     [%expect {|
       === Summary ===
       Post:
-        ARCH-1     (25m)  [Development]  architecture
-        DEV-101    (35m)  [Development]  cr:DEV-101
-        DEV-202    (10m)  [Development]  cr:DEV-202
+        architecture (25m)  ARCH-1  [Development]
+        cr:DEV-101 (35m)  DEV-101  [Development]
+        cr:DEV-202 (10m)  DEV-202  [Development]
       Skip:
         breaks     (1h 20m)
       Total: 1h 10m
@@ -503,7 +559,17 @@ Total: 1h 30m 00s|} in
       Main_logic.run ~config_path ~dates:[test_date])
     in
     (* coding: cached ticket prompt — lookup first *)
-    [%expect {| coding - 1h  Looking up PROJ-123... |}];
+    [%expect {|
+      Mon 03 February 2026 -> Mon 03 February 2026
+
+      coding - 1h
+
+      review - 30m
+
+      Total: 1h 30m
+
+      coding - 1h  Looking up PROJ-123...
+      |}];
     http_get t (jira_issue_response ~key:"PROJ-123" ~summary:"Project task" ~id:12345);
     [%expect {|
       OK
@@ -548,8 +614,8 @@ Total: 1h 30m 00s|} in
     [%expect {|
       === Summary ===
       Post:
-        PROJ-123   (1h)  [Development]  coding  "test work"
-        PROJ-456   (30m)  [Development]  review
+        coding     (1h)  PROJ-123  [Development]  "test work"
+        review     (30m)  PROJ-456  [Development]
       Total: 1h 30m
 
       [Enter] post | [n] skip day:
@@ -604,7 +670,17 @@ Total: 1h 30m 00s|} in
       Main_logic.run ~config_path ~dates:[test_date])
     in
     (* coding: cached ticket prompt — lookup first *)
-    [%expect {| coding - 1h  Looking up PROJ-123... |}];
+    [%expect {|
+      Mon 03 February 2026 -> Mon 03 February 2026
+
+      coding - 1h
+
+      review - 30m
+
+      Total: 1h 30m
+
+      coding - 1h  Looking up PROJ-123...
+      |}];
     http_get t (jira_issue_response ~key:"PROJ-123" ~summary:"Project task" ~id:12345);
     [%expect {|
       OK
@@ -655,8 +731,8 @@ Total: 1h 30m 00s|} in
     [%expect {|
       === Summary ===
       Post:
-        PROJ-123   (1h)  [Meeting]  coding
-        PROJ-456   (30m)  [Support]  review
+        coding     (1h)  PROJ-123  [Meeting]
+        review     (30m)  PROJ-456  [Support]
       Total: 1h 30m
 
       [Enter] post | [n] skip day:
@@ -691,6 +767,11 @@ Total: 2h 00m 00s|});
     (* Day 1: cached ticket prompt — lookup first *)
     [%expect {|
       === 2026-02-03 ===
+      Mon 03 February 2026 -> Mon 03 February 2026
+
+      coding - 1h
+
+      Total: 1h
 
       coding - 1h  Looking up PROJ-123...
       |}];
@@ -717,7 +798,7 @@ Total: 2h 00m 00s|});
     [%expect {|
       === Summary ===
       Post:
-        PROJ-123   (1h)  [Development]  coding
+        coding     (1h)  PROJ-123  [Development]
       Total: 1h
 
       [Enter] post | [n] skip day:
@@ -726,6 +807,11 @@ Total: 2h 00m 00s|});
     (* Day 2: cached ticket prompt — lookup first *)
     [%expect {|
       === 2026-02-04 ===
+      Tue 04 February 2026 -> Tue 04 February 2026
+
+      coding - 2h
+
+      Total: 2h
 
       coding - 2h  Looking up PROJ-123...
       |}];
@@ -749,7 +835,7 @@ Total: 2h 00m 00s|});
     [%expect {|
       === Summary ===
       Post:
-        PROJ-123   (2h)  [Development]  coding
+        coding     (2h)  PROJ-123  [Development]
       Total: 2h
 
       [Enter] post | [n] skip day:
@@ -781,6 +867,15 @@ Total: 1h 20m 02s|} in
     in
     (* cr: auto-split (DEV-101 and DEV-202 are ticket patterns) *)
     [%expect {|
+      Mon 03 February 2026 -> Mon 03 February 2026
+
+      cr - 1h 20m
+      [DEV-101  33m]
+      [review   12m]
+      [DEV-202  33m]
+
+      Total: 1h 20m
+
       cr - 1h 20m
         [DEV-101  35m]
         [review   10m]
@@ -837,8 +932,8 @@ Total: 1h 20m 02s|} in
     [%expect {|
       === Summary ===
       Post:
-        DEV-101    (35m)  [Development]  cr:DEV-101  "review of DEV-101"
-        REVIEW-55  (10m)  [Meeting]  cr:review  "code review"
+        cr:DEV-101 (35m)  DEV-101  [Development]  "review of DEV-101"
+        cr:review  (10m)  REVIEW-55  [Meeting]  "code review"
       Total: 45m
 
       [Enter] post | [n] skip day:
@@ -887,7 +982,13 @@ let%expect_test "handles empty watson report" =
     let t = start ~watson_output:[(test_date, empty_watson_report)] ~config_path (fun () ->
       Main_logic.run ~config_path ~dates:[test_date])
     in
-    [%expect {| === Summary === |}];
+    [%expect {|
+      Mon 03 February 2026 -> Mon 03 February 2026
+
+      Total: 0m
+
+      === Summary ===
+      |}];
     finish t
 
 let%expect_test "cached ticket: keep all" =
@@ -906,7 +1007,15 @@ Total: 1h 00m 00s|} in
       Main_logic.run ~config_path ~dates:[test_date])
     in
     (* Context + cached prompt: lookup first *)
-    [%expect {| coding - 1h  Looking up PROJ-123... |}];
+    [%expect {|
+      Mon 03 February 2026 -> Mon 03 February 2026
+
+      coding - 1h
+
+      Total: 1h
+
+      coding - 1h  Looking up PROJ-123...
+      |}];
     http_get t (jira_issue_response ~key:"PROJ-123" ~summary:"Project task" ~id:12345);
     [%expect {|
       OK
@@ -927,7 +1036,7 @@ Total: 1h 00m 00s|} in
     [%expect {|
       === Summary ===
       Post:
-        PROJ-123   (1h)  [Development]  coding  "daily work"
+        coding     (1h)  PROJ-123  [Development]  "daily work"
       Total: 1h
 
       [Enter] post | [n] skip day:
@@ -949,7 +1058,15 @@ Total: 1h 00m 00s|} in
       Main_logic.run ~config_path ~dates:[test_date])
     in
     (* Should auto-detect DEV-123 and do lookup *)
-    [%expect {| DEV-123 - 1h  Looking up DEV-123... |}];
+    [%expect {|
+      Mon 03 February 2026 -> Mon 03 February 2026
+
+      DEV-123 - 1h
+
+      Total: 1h
+
+      DEV-123 - 1h  Looking up DEV-123...
+      |}];
     http_get t (jira_issue_response ~key:"DEV-123" ~summary:"Auto-detected task" ~id:123);
     [%expect {|
       OK
@@ -973,7 +1090,7 @@ Total: 1h 00m 00s|} in
     [%expect {|
       === Summary ===
       Post:
-        DEV-123    (1h)  [Development]  DEV-123  "auto-detected work"
+        DEV-123    (1h)  DEV-123  [Development]  "auto-detected work"
       Total: 1h
 
       [Enter] post | [n] skip day:
@@ -996,6 +1113,12 @@ Total: 30m 00s|} in
     in
     (* Shows skip prompt, user overrides with [t] *)
     [%expect {|
+      Mon 03 February 2026 -> Mon 03 February 2026
+
+      breaks - 30m
+
+      Total: 30m
+
       breaks - 30m  [skip]
         [Enter] keep | [t] assign ticket:
       |}];
@@ -1028,7 +1151,7 @@ Total: 30m 00s|} in
     [%expect {|
       === Summary ===
       Post:
-        BREAK-1    (30m)  [Meeting]  breaks  "team lunch"
+        breaks     (30m)  BREAK-1  [Meeting]  "team lunch"
       Total: 30m
 
       [Enter] post | [n] skip day:
@@ -1058,6 +1181,12 @@ Total: 1h 00m 00s|} in
     in
     (* review should appear as uncached — no composite key match *)
     [%expect {|
+      Mon 03 February 2026 -> Mon 03 February 2026
+
+      review - 1h
+
+      Total: 1h
+
       review - 1h
         [Enter] search "review" | [ticket/search] | [n] skip | [S] skip always:
       |}];
@@ -1082,7 +1211,7 @@ Total: 1h 00m 00s|} in
     [%expect {|
       === Summary ===
       Post:
-        REVIEW-99  (1h)  [Development]  review  "different work"
+        review     (1h)  REVIEW-99  [Development]  "different work"
       Total: 1h
 
       [Enter] post | [n] skip day:
@@ -1104,7 +1233,15 @@ Total: 1h 00m 00s|} in
       Main_logic.run ~config_path ~dates:[test_date])
     in
     (* Cached ticket lookup returns 404 *)
-    [%expect {| coding - 1h  Looking up OLD-1... |}];
+    [%expect {|
+      Mon 03 February 2026 -> Mon 03 February 2026
+
+      coding - 1h
+
+      Total: 1h
+
+      coding - 1h  Looking up OLD-1...
+      |}];
     http_get t { Io.status = 404; body = "Not Found" };
     (* Lookup failed -> falls through to uncached search prompt *)
     [%expect {|
@@ -1136,7 +1273,7 @@ Total: 1h 00m 00s|} in
     [%expect {|
       === Summary ===
       Post:
-        NEW-99     (1h)  [Development]  coding  "new work"
+        coding     (1h)  NEW-99  [Development]  "new work"
       Total: 1h
 
       [Enter] post | [n] skip day:

@@ -37,9 +37,9 @@ Io.styled @@ sprintf "{err}%s: FAILED (%d){/}\n" ticket status
 | `{err}` | Red | FAILED status, errors |
 | `{warn}` | Yellow | Warnings |
 | `{info}` | Cyan | Auto-split marker, informational |
-| `{dim}` | Dim | Prompt brackets, skip entries, response bodies |
-| `{ticket}` | Blue | Ticket keys in cached display |
-| `{prompt}` | Dim | Interactive prompt option text |
+| `{dim}` | Dim | "Looking up..." status, skip entries in summary, response bodies |
+| `{action}` | Blue | Current decision/ticket being evaluated (`[skip]`, `[-> DEV-42 "..."]`) |
+| `{prompt}` | Dim | Interactive prompt options (`[Enter] keep | [t] ticket...`) |
 
 ## Migration
 

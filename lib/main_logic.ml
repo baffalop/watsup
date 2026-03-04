@@ -142,13 +142,13 @@ let fetch_tempo_account_key ~token ~account_id =
 
 let show_entry_context entry =
   let has_tags = not (List.is_empty entry.Watson.tags) in
-  Io.output @@ sprintf "\n%s - %s"
+  Io.styled @@ sprintf "\n{project}%s{/} - {duration}%s{/}"
     entry.project
     (Duration.to_string @@ Duration.round_5min entry.total);
   if has_tags then begin
     Io.output "\n";
     List.iter entry.tags ~f:(fun tag ->
-      Io.output @@ sprintf "  [%-8s %s]\n" tag.Watson.name
+      Io.styled @@ sprintf "  [{tag}%-8s{/} {duration}%s{/}]\n" tag.Watson.name
         (Duration.to_string @@ Duration.round_5min tag.duration))
   end
 
@@ -157,9 +157,9 @@ type cached_response = Keep | Change_ticket | Change_category | Skip_once | Spli
 let prompt_cached_entry ~creds ~ticket ~has_tags =
   match Jira_search.lookup_cached_ticket ~creds ~ticket with
   | Found result ->
-    Io.output @@ sprintf "  [-> %s \"%s\"]\n" result.key result.summary;
+    Io.styled @@ sprintf "  {action}[-> %s \"%s\"]{/}\n" result.key result.summary;
     let split_opt = if has_tags then " | [s] split" else "" in
-    Io.output @@ sprintf "  [Enter] keep | [t] ticket%s | [c] category | [n] skip: " split_opt;
+    Io.styled @@ sprintf "  {prompt}[Enter] keep | [t] ticket%s | [c] category | [n] skip:{/} " split_opt;
     (match Io.input () with
      | "t" -> (Change_ticket, true)
      | "s" when has_tags -> (Split, true)
@@ -170,8 +170,8 @@ let prompt_cached_entry ~creds ~ticket ~has_tags =
     (Change_ticket, false)
 
 let prompt_cached_skip () =
-  Io.output "  [skip]\n";
-  Io.output "  [Enter] keep | [t] assign ticket: ";
+  Io.styled "  {action}[skip]{/}\n";
+  Io.styled "  {prompt}[Enter] keep | [t] assign ticket:{/} ";
   match Io.input () with
   | "t" -> Change_ticket
   | _ -> Keep
@@ -191,7 +191,7 @@ let prompt_uncached_entry ~creds ~starred_projects ~date entry =
   | Jira_search.Split -> Processor.Split
 
 let prompt_uncached_tag ~creds ~starred_projects ~date ~project tag =
-  Io.output @@ sprintf "  [%-8s %s] " tag.Watson.name
+  Io.styled @@ sprintf "  [{tag}%-8s{/} {duration}%s{/}] " tag.Watson.name
     (Duration.to_string @@ Duration.round_5min tag.Watson.duration);
   let search_hint = sprintf "%s %s" project tag.Watson.name in
   match Jira_search.prompt_loop ~creds ~search_hint ~has_tags:false
@@ -201,11 +201,11 @@ let prompt_uncached_tag ~creds ~starred_projects ~date ~project tag =
   | Jira_search.Split -> Processor.Tag_skip
 
 let prompt_cached_tag ~creds tag ~ticket =
-  Io.output @@ sprintf "  [%-8s %s] " tag.Watson.name
+  Io.styled @@ sprintf "  [{tag}%-8s{/} {duration}%s{/}] " tag.Watson.name
     (Duration.to_string @@ Duration.round_5min tag.Watson.duration);
   match Jira_search.lookup_cached_ticket ~creds ~ticket with
   | Found result ->
-    Io.output @@ sprintf "[-> %s \"%s\"] [Enter] keep | [t] change | [n] skip: "
+    Io.styled @@ sprintf "{action}[-> %s \"%s\"]{/} {prompt}[Enter] keep | [t] change | [n] skip:{/} "
       result.key result.summary;
     (match Io.input () with
      | "t" -> (Change_ticket, true)
@@ -297,7 +297,7 @@ let prompt_category ~config ~options ticket =
     (* Check if cached value still resolves *)
     (match List.find options ~f:(fun cat -> String.equal (Category.value cat) cached_value) with
      | Some cat ->
-       Io.output @@ sprintf "  %s category: %s\n    [Enter] keep | [c] change: " ticket (Category.name cat);
+       Io.styled @@ sprintf "  %s category: %s\n    {prompt}[Enter] keep | [c] change:{/} " ticket (Category.name cat);
        let input = Io.input () in
        if String.equal input "c" then begin
          let value = prompt_category_list ~options ~current_value:(Some cached_value) in
@@ -320,14 +320,76 @@ let resolve_category_for_display ~config ~options ticket =
     List.find options ~f:(fun cat -> String.equal (Category.value cat) value)
   | None -> None
 
+let display_watson_report report =
+  Io.styled @@ sprintf "{info}%s{/}\n\n" report.Watson.date_range;
+  List.iter report.entries ~f:(fun entry ->
+    Io.styled @@ sprintf "{project}%s{/} - {duration}%s{/}\n"
+      entry.Watson.project
+      (Duration.to_string entry.total);
+    List.iter entry.tags ~f:(fun tag ->
+      Io.styled @@ sprintf "\t[{tag}%-8s{/} {duration}%s{/}]\n" tag.Watson.name
+        (Duration.to_string tag.duration));
+    Io.output "\n");
+  Io.styled @@ sprintf "{header}Total: {duration}%s{/}\n" (Duration.to_string report.total)
+
+let run_styled f =
+  let open Effect.Deep in
+  try f () with
+  | effect (Io.Output s), k -> print_string s; continue k ()
+  | effect (Io.Set_color c), k ->
+    let tag = match c with
+      | Io.Reset -> "/)" | Bold -> "(B" | Dim -> "(D" | Red -> "(R"
+      | Green -> "(G" | Yellow -> "(Y" | Blue -> "(U" | Cyan -> "(C"
+    in
+    print_string tag; continue k ()
+
+let%expect_test "display_watson_report: entries with tags" =
+  let report = {
+    Watson.date_range = "Tue 03 February 2026 -> Tue 03 February 2026";
+    entries = [
+      { project = "coding"; total = Duration.of_hms ~hours:1 ~mins:30 ~secs:0; tags = [] };
+      { project = "cr"; total = Duration.of_hms ~hours:0 ~mins:50 ~secs:0; tags = [
+        { name = "DEV-101"; duration = Duration.of_hms ~hours:0 ~mins:33 ~secs:0 };
+        { name = "DEV-202"; duration = Duration.of_hms ~hours:0 ~mins:12 ~secs:0 };
+      ] };
+    ];
+    total = Duration.of_hms ~hours:2 ~mins:20 ~secs:0;
+  } in
+  run_styled (fun () -> display_watson_report report);
+  [%expect {|
+    (CTue 03 February 2026 -> Tue 03 February 2026/)
+
+    (Rcoding/) - (G1h 30m/)
+
+    (Rcr/) - (G50m/)
+    [(UDEV-101 /) (G33m/)]
+    [(UDEV-202 /) (G12m/)]
+
+    (BTotal: (G2h 20m/)
+    |}]
+
+let%expect_test "display_watson_report: empty" =
+  let report = {
+    Watson.date_range = "Mon 03 February 2026 -> Mon 03 February 2026";
+    entries = [];
+    total = Duration.of_hms ~hours:0 ~mins:0 ~secs:0;
+  } in
+  run_styled (fun () -> display_watson_report report);
+  [%expect {|
+    (CMon 03 February 2026 -> Mon 03 February 2026/)
+
+    (BTotal: (G0m/)
+    |}]
+
 let run_day ~config_path:_ ~config ~creds ~starred_projects ~date =
   (* Parse watson report *)
-  let watson_cmd = sprintf "CLICOLOR_FORCE=1 watson report -G -f %s -t %s | tee /dev/stderr" date date in
+  let watson_cmd = sprintf "watson report -G -f %s -t %s" date date in
   let watson_output = Io.run_command watson_cmd in
   let report = match Watson.parse watson_output with
     | Ok report -> report
     | Error err -> failwith @@ sprintf "Could not parse Watson output: %s" @@ Error.to_string_hum err
   in
+  display_watson_report report;
 
   let handle_split_tags cfg entry =
     let accept_tag acc cfg composite_key tag ticket =
@@ -442,7 +504,7 @@ let run_day ~config_path:_ ~config ~creds ~starred_projects ~date =
         | Processor.Tag_inferred ticket ->
           handle_cached_entry cfg entry ~ticket
         | Processor.Auto_split ->
-          Io.output "  auto-splitting\n";
+          Io.styled "  {info}auto-splitting{/}\n";
           handle_split_tags cfg entry
         | Processor.Project_skip ->
           let response = prompt_cached_skip () in
@@ -477,7 +539,7 @@ let run_day ~config_path:_ ~config ~creds ~starred_projects ~date =
   let all_decisions = List.rev all_decisions in
 
   (* Combined Summary *)
-  Io.output "\n=== Summary ===\n";
+  Io.styled "\n{header}=== Summary ==={/}\n";
   let posts, skips = List.partition_tf all_decisions ~f:(function
     | Processor.Post _ -> true
     | Processor.Skip _ -> false) in
@@ -490,34 +552,34 @@ let run_day ~config_path:_ ~config ~creds ~starred_projects ~date =
     List.iter posts ~f:(function
       | Processor.Post { ticket; duration; source; description } ->
         let cat_str = match resolve_category_for_display ~config ~options:cat_options ticket with
-          | Some cat -> sprintf "  [%s]" (Category.name cat) | None -> "" in
+          | Some cat -> sprintf "  {dim}[%s]{/}" (Category.name cat) | None -> "" in
         let desc_str = if String.is_empty description then ""
           else sprintf "  \"%s\"" description in
-        Io.output @@ sprintf "  %-10s (%s)%s  %s%s\n" ticket
-          (Duration.to_string duration) cat_str source desc_str
+        Io.styled @@ sprintf "  {project}%-10s{/} ({duration}%s{/})  {action}%s{/}%s%s\n"
+          source (Duration.to_string duration) ticket cat_str desc_str
       | Processor.Skip _ -> ())
   end;
 
   if not (List.is_empty skips) then begin
-    Io.output "Skip:\n";
+    Io.styled "{dim}Skip:{/}\n";
     List.iter skips ~f:(function
       | Processor.Skip { project; duration } ->
-        Io.output @@ sprintf "  %-10s (%s)\n" project (Duration.to_string duration)
+        Io.styled @@ sprintf "  {dim}%-10s (%s){/}\n" project (Duration.to_string duration)
       | Processor.Post _ -> ())
   end;
 
   if not (List.is_empty posts) then
-    Io.output @@ sprintf "Total: %s\n"
+    Io.styled @@ sprintf "{header}Total: {duration}%s{/}\n"
       (Duration.to_string @@ Processor.total_posted_duration posts);
 
   (* Confirmation prompt *)
   if not (List.is_empty posts) then begin
-    Io.output "\n[Enter] post | [n] skip day: ";
+    Io.styled "\n{prompt}[Enter] post | [n] skip day:{/} ";
     let confirm = Io.input () in
 
     if not (String.equal confirm "n") then begin
       let date = parse_date_from_range report.date_range in
-      Io.output "\n=== Posting ===\n";
+      Io.styled "\n{header}=== Posting ==={/}\n";
 
       (* Resolve issue IDs and post worklogs, accumulating config changes *)
       let results, config =
@@ -529,7 +591,7 @@ let run_day ~config_path:_ ~config ~creds ~starred_projects ~date =
               match Config.get_issue_id cfg ticket, Config.get_account_key cfg ticket with
               | Some id, Some key -> (id, Some key, cfg)
               | _ ->
-                Io.output @@ sprintf "  Looking up %s... " ticket;
+                Io.styled @@ sprintf "  {dim}Looking up %s...{/} " ticket;
                 match fetch_jira_issue_info ~config:cfg ~ticket with
                 | Ok (id, account_id) ->
                   let cfg = Config.set_issue_id cfg ticket id in
@@ -538,19 +600,19 @@ let run_day ~config_path:_ ~config ~creds ~starred_projects ~date =
                     | Some acct_id ->
                       (match fetch_tempo_account_key ~token:cfg.tempo_token ~account_id:acct_id with
                        | Ok key ->
-                         Io.output @@ sprintf "OK (id=%d, account=%s)\n" id key;
+                         Io.styled @@ sprintf "{ok}OK{/} (id=%d, account=%s)\n" id key;
                          (Some key, Config.set_account_key cfg ticket key)
                        | Error msg ->
-                         Io.output @@ sprintf "OK (id=%d)\n" id;
-                         Io.output @@ sprintf "  Warning: could not resolve account %s: %s\n" acct_id msg;
+                         Io.styled @@ sprintf "{ok}OK{/} (id=%d)\n" id;
+                         Io.styled @@ sprintf "  {warn}Warning: could not resolve account %s: %s{/}\n" acct_id msg;
                          (None, cfg))
                     | None ->
-                      Io.output @@ sprintf "OK (id=%d)\n" id;
+                      Io.styled @@ sprintf "{ok}OK{/} (id=%d)\n" id;
                       (None, cfg)
                   in
                   (id, account_key, cfg)
                 | Error msg ->
-                  Io.output @@ sprintf "FAILED: %s\n" msg;
+                  Io.styled @@ sprintf "{err}FAILED: %s{/}\n" msg;
                   failwith @@ sprintf "Could not fetch issue info for %s" ticket
             in
             let cat_options = match cfg.categories with
@@ -571,10 +633,10 @@ let run_day ~config_path:_ ~config ~creds ~starred_projects ~date =
                 ~duration ~date ~description ~attributes in
             let success = response.Io.status >= 200 && response.status < 300 in
             if success then
-              Io.output @@ sprintf "%s: OK\n" ticket
+              Io.styled @@ sprintf "{ok}%s: OK{/}\n" ticket
             else begin
-              Io.output @@ sprintf "%s: FAILED (%d)\n" ticket response.status;
-              Io.output @@ sprintf "  Response: %s\n" response.body
+              Io.styled @@ sprintf "{err}%s: FAILED (%d){/}\n" ticket response.status;
+              Io.styled @@ sprintf "  {dim}Response: %s{/}\n" response.body
             end;
             (success :: acc, cfg)
           | Processor.Skip _ -> (acc, cfg))
@@ -582,7 +644,7 @@ let run_day ~config_path:_ ~config ~creds ~starred_projects ~date =
 
       let ok_count = List.count results ~f:Fn.id in
       let total_count = List.length results in
-      Io.output @@ sprintf "\nPosted %d/%d worklogs\n" ok_count total_count;
+      Io.styled @@ sprintf "\n{header}Posted %d/%d worklogs{/}\n" ok_count total_count;
       config
     end
     else config
@@ -636,10 +698,10 @@ let run ~config_path ~dates =
       Io.output "Fetching Jira account ID... ";
       match fetch_jira_account_id ~config with
       | Ok account_id ->
-        Io.output @@ sprintf "OK (%s)\n" account_id;
+        Io.styled @@ sprintf "{ok}OK{/} (%s)\n" account_id;
         { config with jira_account_id = account_id }
       | Error msg ->
-        Io.output @@ sprintf "FAILED: %s\n" msg;
+        Io.styled @@ sprintf "{err}FAILED: %s{/}\n" msg;
         failwith "Could not fetch Jira account ID"
     end
     else config
@@ -658,7 +720,7 @@ let run ~config_path ~dates =
     let valid_keys = List.filter keys ~f:Ticket.is_project_key in
     let invalid = List.filter keys ~f:(fun k -> not (Ticket.is_project_key k)) in
     if not (List.is_empty invalid) then
-      Io.output @@ sprintf "  Skipping invalid keys: %s\n" (String.concat ~sep:", " invalid);
+      Io.styled @@ sprintf "  {warn}Skipping invalid keys: %s{/}\n" (String.concat ~sep:", " invalid);
     if not (List.is_empty valid_keys) then
       Io.output @@ sprintf "Starred projects: %s\n" (String.concat ~sep:", " valid_keys);
     let config = { config with starred_projects = Some valid_keys } in
@@ -700,7 +762,7 @@ let run ~config_path ~dates =
            }
          }
        | Error msg ->
-         Io.output @@ sprintf "Warning: could not fetch categories: %s\n" msg;
+         Io.styled @@ sprintf "{warn}Warning: could not fetch categories: %s{/}\n" msg;
          config
     )
     | None -> config
@@ -719,7 +781,7 @@ let run ~config_path ~dates =
   let config =
     List.fold dates ~init:config ~f:(fun cfg date ->
       if multi_day then
-        Io.output @@ sprintf "\n=== %s ===\n" date;
+        Io.styled @@ sprintf "\n{header}=== %s ==={/}\n" date;
       run_day ~config_path ~config:cfg ~creds ~starred_projects ~date)
   in
 

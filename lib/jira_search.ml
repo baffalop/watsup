@@ -231,6 +231,8 @@ let run_mocked f =
     | effect Io.Output s, k ->
         print_string s;
         continue k ()
+    | effect (Io.Set_color _), k ->
+        continue k ()
 
 let%expect_test "search: success" =
   let creds = { base_url = "https://test.atlassian.net"; email = "u@t.com"; token = "t" } in
@@ -294,12 +296,12 @@ type lookup_result =
 
 let display_results results =
   List.iteri results ~f:(fun i r ->
-    Io.output @@ sprintf "  %d. %-10s %s\n" (i + 1) r.key r.summary)
+    Io.styled @@ sprintf "  %d. {action}%-10s{/} %s\n" (i + 1) r.key r.summary)
 
 let rec prompt_loop ~creds ~search_hint ~has_tags ~starred_projects ~log_date =
   let tag_opt = if has_tags then " | [s] split" else "" in
   let action = if Ticket.is_ticket_pattern search_hint then "look up" else "search" in
-  Io.output @@ sprintf "  [Enter] %s \"%s\" | [ticket/search]%s | [n] skip | [S] skip always: "
+  Io.styled @@ sprintf "  {prompt}[Enter] %s \"%s\" | [ticket/search]%s | [n] skip | [S] skip always:{/} "
     action search_hint tag_opt;
   let input = Io.input () in
   match input with
@@ -324,7 +326,7 @@ let rec prompt_loop ~creds ~search_hint ~has_tags ~starred_projects ~log_date =
      | None -> prompt_loop ~creds ~search_hint ~has_tags ~starred_projects ~log_date)
 
 and results_loop ~creds ~starred_projects ~log_date ~results =
-  Io.output "  [#] select | [text] search again | [n] back: ";
+  Io.styled "  {prompt}[#] select | [text] search again | [n] back:{/} ";
   let input = Io.input () in
   match input with
   | "n" -> None
@@ -336,18 +338,18 @@ and results_loop ~creds ~starred_projects ~log_date ~results =
      | _ -> search_and_display ~creds ~starred_projects ~log_date s)
 
 and handle_ticket_input ~creds ~starred_projects ~log_date ticket =
-  Io.output @@ sprintf "  Looking up %s... " ticket;
+  Io.styled @@ sprintf "  {dim}Looking up %s...{/} " ticket;
   match lookup ~creds ~ticket with
   | Ok result ->
-    Io.output @@ sprintf "\n  %s  %s\n" result.key result.summary;
-    Io.output "  [Enter] confirm | [text] search again | [n] back: ";
+    Io.styled @@ sprintf "\n  {action}%s{/}  %s\n" result.key result.summary;
+    Io.styled "  {prompt}[Enter] confirm | [text] search again | [n] back:{/} ";
     (match Io.input () with
      | "" -> Some result
      | "n" -> None
      | s -> search_and_display ~creds ~starred_projects ~log_date s)
   | Error msg ->
-    Io.output @@ sprintf "%s\n" msg;
-    Io.output "  [text] try again | [n] back: ";
+    Io.styled @@ sprintf "{err}%s{/}\n" msg;
+    Io.styled "  {prompt}[text] try again | [n] back:{/} ";
     (match Io.input () with
      | "n" -> None
      | s when Ticket.is_ticket_pattern s ->
@@ -357,13 +359,13 @@ and handle_ticket_input ~creds ~starred_projects ~log_date ticket =
 and search_and_display ~creds ~starred_projects ~log_date terms =
   match build_search_jql ~terms ~starred_projects ~log_date with
   | None ->
-    Io.output "  No search terms provided.\n";
+    Io.styled "  {warn}No search terms provided.{/}\n";
     None
   | Some jql ->
     begin match search ~creds ~jql with
     | Ok [] ->
-      Io.output "  No results found.\n";
-      Io.output "  [text] search again | [n] back: ";
+      Io.styled "  {dim}No results found.{/}\n";
+      Io.styled "  {prompt}[text] search again | [n] back:{/} ";
       (match Io.input () with
        | "n" -> None
        | s -> search_and_display ~creds ~starred_projects ~log_date s)
@@ -371,18 +373,18 @@ and search_and_display ~creds ~starred_projects ~log_date terms =
       display_results results;
       results_loop ~creds ~starred_projects ~log_date ~results
     | Error msg ->
-      Io.output @@ sprintf "  Search failed: %s\n" msg;
+      Io.styled @@ sprintf "  {err}Search failed: %s{/}\n" msg;
       None
     end
 
 let lookup_cached_ticket ~creds ~ticket =
-  Io.output @@ sprintf "  Looking up %s... " ticket;
+  Io.styled @@ sprintf "  {dim}Looking up %s...{/} " ticket;
   match lookup ~creds ~ticket with
   | Ok result ->
-    Io.output "OK\n";
+    Io.styled "{ok}OK{/}\n";
     Found result
   | Error msg ->
-    Io.output @@ sprintf "%s\n" msg;
+    Io.styled @@ sprintf "{err}%s{/}\n" msg;
     Not_found msg
 
 (* === Mocked IO tests for prompt loop === *)
