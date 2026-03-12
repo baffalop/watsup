@@ -1456,6 +1456,377 @@ Total: 1h 20m 00s|} in
     printf "cr: %b, cr:DEV-101: %b, cr:DEV-202: %b\n" has_cr has_cr_dev101 has_cr_dev202;
     [%expect {| cr: false, cr:DEV-101: true, cr:DEV-202: true |}]
 
+let%expect_test "multi-day: split -> single-tag day -> new tag -> split again -> autosplit" =
+  with_temp_config @@ fun ~config_path ->
+    let config = test_config_with_mappings [] in
+    Config.save ~path:config_path config |> Or_error.ok_exn;
+    let watson_feature_review = {|Mon 03 February 2026 -> Mon 03 February 2026
+
+cr - 1h 20m 00s
+	[feature     40m 00s]
+	[review      40m 00s]
+
+Total: 1h 20m 00s|} in
+    let watson_feature_only = {|Mon 03 February 2026 -> Mon 03 February 2026
+
+cr - 40m 00s
+	[feature     40m 00s]
+
+Total: 40m 00s|} in
+    let watson_feature_newwork = {|Mon 03 February 2026 -> Mon 03 February 2026
+
+cr - 1h 20m 00s
+	[feature     40m 00s]
+	[newwork     40m 00s]
+
+Total: 1h 20m 00s|} in
+
+    (* Day 1: uncached entry, user splits and maps both tags *)
+    let t1 = start ~watson_output:[(test_date, watson_feature_review)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
+    [%expect {|
+      Mon 03 February 2026 -> Mon 03 February 2026
+
+      cr - 1h 20m
+      [feature  40m]
+      [review   40m]
+
+      Total: 1h 20m
+
+      cr - 1h 20m
+        [feature  40m]
+        [review   40m]
+
+        [Enter] search "cr feature review" | [ticket/search] | [s] split | [n] skip | [S] skip always:
+      |}];
+    input t1 "s";         (* split from uncached entry prompt *)
+    [%expect {| [feature  40m]   [Enter] search "cr feature" | [ticket/search] | [n] skip | [S] skip always: |}];      (* feature: uncached_tag prompt *)
+    input t1 "FEAT-1";
+    [%expect {| Looking up FEAT-1... |}];      (* Looking up FEAT-1... *)
+    http_get t1 (jira_issue_response ~key:"FEAT-1" ~summary:"Feature work" ~id:1);
+    [%expect {|
+      FEAT-1  Feature work
+      [Enter] confirm | [text] search again | [n] back:
+      |}];      (* result + confirm *)
+    input t1 "";          (* confirm *)
+    [%expect {| Description for FEAT-1 (optional): |}];      (* description *)
+    input t1 "";
+    [%expect {|
+      FEAT-1 category:
+        1. Development
+        2. Meeting
+        3. Support
+      >
+      |}];      (* category: fresh *)
+    input t1 "1";         (* Development *)
+    [%expect {| [review   40m]   [Enter] search "cr review" | [ticket/search] | [n] skip | [S] skip always: |}];      (* review: uncached_tag prompt *)
+    input t1 "REV-1";
+    [%expect {| Looking up REV-1... |}];      (* Looking up REV-1... *)
+    http_get t1 (jira_issue_response ~key:"REV-1" ~summary:"Review work" ~id:2);
+    [%expect {|
+      REV-1  Review work
+      [Enter] confirm | [text] search again | [n] back:
+      |}];      (* result + confirm *)
+    input t1 "";          (* confirm *)
+    [%expect {| Description for REV-1 (optional): |}];      (* description *)
+    input t1 "";
+    [%expect {|
+      REV-1 category:
+        1. Development
+        2. Meeting
+        3. Support
+      >
+      |}];      (* category: fresh *)
+    input t1 "1";         (* Development *)
+    [%expect {|
+      === Summary ===
+      Post:
+        cr:feature (40m)  FEAT-1  [Development]
+        cr:review  (40m)  REV-1  [Development]
+      Total: 1h 20m
+
+      [Enter] post | [n] skip day:
+      |}];      (* summary *)
+    input t1 "n";
+    [%expect {| |}];
+    finish t1;
+
+    (* Day 2: only [feature] tag present — one composite key matches -> Tag_inferred *)
+    let t2 = start ~watson_output:[(test_date, watson_feature_only)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
+    [%expect {|
+      Mon 03 February 2026 -> Mon 03 February 2026
+
+      cr - 40m
+      [feature  40m]
+
+      Total: 40m
+
+      cr - 40m
+        [feature  40m]
+        Looking up FEAT-1...
+      |}];      (* entry context + Looking up FEAT-1... *)
+    http_get t2 (jira_issue_response ~key:"FEAT-1" ~summary:"Feature work" ~id:1);
+    [%expect {|
+      OK
+        [-> FEAT-1 "Feature work"]
+        [Enter] keep | [t] ticket | [s] split | [c] category | [n] skip:
+      |}];      (* OK + project-level cached prompt (Tag_inferred looks identical) *)
+    input t2 "";          (* keep -> saves cr -> FEAT-1 at project level *)
+    [%expect {| Description for FEAT-1 (optional): |}];      (* description *)
+    input t2 "";
+    [%expect {|
+      FEAT-1 category: Development
+        [Enter] keep | [c] change:
+      |}];      (* category: cached keep/change *)
+    input t2 "";          (* keep *)
+    [%expect {|
+      === Summary ===
+      Post:
+        cr         (40m)  FEAT-1  [Development]
+      Total: 40m
+
+      [Enter] post | [n] skip day:
+      |}];      (* summary *)
+    input t2 "n";
+    [%expect {| |}];
+    finish t2;
+
+    (* Day 3: [feature, newwork] — project-level cr -> FEAT-1 now in effect *)
+    let t3 = start ~watson_output:[(test_date, watson_feature_newwork)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
+    [%expect {|
+      Mon 03 February 2026 -> Mon 03 February 2026
+
+      cr - 1h 20m
+      [feature  40m]
+      [newwork  40m]
+
+      Total: 1h 20m
+
+      cr - 1h 20m
+        [feature  40m]
+        [newwork  40m]
+        Looking up FEAT-1...
+      |}];      (* entry context + Looking up FEAT-1... *)
+    http_get t3 (jira_issue_response ~key:"FEAT-1" ~summary:"Feature work" ~id:1);
+    [%expect {|
+      OK
+        [-> FEAT-1 "Feature work"]
+        [Enter] keep | [t] ticket | [s] split | [c] category | [n] skip:
+      |}];      (* OK + project-level cached prompt, [s] split available *)
+    input t3 "";          (* keep -> all 1h 20m (feature + newwork) posted to FEAT-1 *)
+    [%expect {| Description for FEAT-1 (optional): |}];      (* description *)
+    input t3 "";
+    [%expect {|
+      FEAT-1 category: Development
+        [Enter] keep | [c] change:
+      |}];      (* category: change to Meeting *)
+    input t3 "c";
+    [%expect {|
+        1. Development *
+        2. Meeting
+        3. Support
+      >
+      |}];      (* category list *)
+    input t3 "2";         (* Meeting *)
+    [%expect {|
+      === Summary ===
+      Post:
+        cr         (1h 20m)  FEAT-1  [Meeting]
+      Total: 1h 20m
+
+      [Enter] post | [n] skip day:
+      |}];      (* summary: cr (1h 20m) -> FEAT-1 [Meeting], newwork time silently absorbed *)
+    input t3 "n";
+    [%expect {| |}];
+    finish t3;
+
+    (* Day 4: same tags — user splits, keeps FEAT-1 for feature, assigns TASK-1 for newwork *)
+    let t4 = start ~watson_output:[(test_date, watson_feature_newwork)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
+    [%expect {|
+      Mon 03 February 2026 -> Mon 03 February 2026
+
+      cr - 1h 20m
+      [feature  40m]
+      [newwork  40m]
+
+      Total: 1h 20m
+
+      cr - 1h 20m
+        [feature  40m]
+        [newwork  40m]
+        Looking up FEAT-1...
+      |}];      (* entry context + Looking up FEAT-1... *)
+    http_get t4 (jira_issue_response ~key:"FEAT-1" ~summary:"Feature work" ~id:1);
+    [%expect {|
+      OK
+        [-> FEAT-1 "Feature work"]
+        [Enter] keep | [t] ticket | [s] split | [c] category | [n] skip:
+      |}];
+    input t4 "s";         (* split *)
+    (* feature: cached composite key cr:feature -> FEAT-1, cached_tag prompt *)
+    http_get t4 (jira_issue_response ~key:"FEAT-1" ~summary:"Feature work" ~id:1);
+    [%expect {|
+        [feature  40m]   Looking up FEAT-1... OK
+      [-> FEAT-1 "Feature work"] [Enter] keep | [t] change | [n] skip:
+      |}];
+    input t4 "";          (* keep *)
+    [%expect {| Description for FEAT-1 (optional): |}];      (* description *)
+    input t4 "";
+    [%expect {|
+      FEAT-1 category: Meeting
+        [Enter] keep | [c] change:
+      |}];      (* category: cached keep/change — Meeting or Development? *)
+    input t4 "";          (* keep *)
+    (* newwork: uncached, no composite key -> uncached_tag search *)
+    [%expect {| [newwork  40m]   [Enter] search "cr newwork" | [ticket/search] | [n] skip | [S] skip always: |}];
+    input t4 "TASK-1";
+    [%expect {| Looking up TASK-1... |}];      (* Looking up TASK-1... *)
+    http_get t4 (jira_issue_response ~key:"TASK-1" ~summary:"Task one" ~id:3);
+    [%expect {|
+      TASK-1  Task one
+      [Enter] confirm | [text] search again | [n] back:
+      |}];      (* result + confirm *)
+    input t4 "";          (* confirm *)
+    [%expect {| Description for TASK-1 (optional): |}];      (* description *)
+    input t4 "";
+    [%expect {|
+      TASK-1 category:
+        1. Development
+        2. Meeting
+        3. Support
+      >
+      |}];      (* category: fresh *)
+    input t4 "1";         (* Development *)
+    [%expect {|
+      === Summary ===
+      Post:
+        cr:feature (40m)  FEAT-1  [Meeting]
+        cr:newwork (40m)  TASK-1  [Development]
+      Total: 1h 20m
+
+      [Enter] post | [n] skip day:
+      |}];      (* summary *)
+    input t4 "n";
+    [%expect {| |}];
+    finish t4;
+
+    (* Day 5: same tags — both composite keys exist -> Auto_split *)
+    let t5 = start ~watson_output:[(test_date, watson_feature_newwork)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
+    (* feature: cached_tag lookup *)
+    [%expect {|
+      Mon 03 February 2026 -> Mon 03 February 2026
+
+      cr - 1h 20m
+      [feature  40m]
+      [newwork  40m]
+
+      Total: 1h 20m
+
+      cr - 1h 20m
+        [feature  40m]
+        [newwork  40m]
+        auto-splitting
+        [feature  40m]   Looking up FEAT-1...
+      |}];
+    http_get t5 (jira_issue_response ~key:"FEAT-1" ~summary:"Feature work" ~id:1);
+    [%expect {|
+      OK
+      [-> FEAT-1 "Feature work"] [Enter] keep | [t] change | [n] skip:
+      |}];
+    input t5 "";          (* keep *)
+    [%expect {| Description for FEAT-1 (optional): |}];      (* description *)
+    input t5 "";
+    [%expect {|
+      FEAT-1 category: Meeting
+        [Enter] keep | [c] change:
+      |}];      (* category: change to Support to test reverse direction (split -> project-level) *)
+    input t5 "c";
+    [%expect {|
+        1. Development
+        2. Meeting *
+        3. Support
+      >
+      |}];      (* category list with Meeting marked *)
+    input t5 "3";         (* Support *)
+    (* newwork: cached_tag lookup *)
+    http_get t5 (jira_issue_response ~key:"TASK-1" ~summary:"Task one" ~id:3);
+    [%expect {|
+        [newwork  40m]   Looking up TASK-1... OK
+      [-> TASK-1 "Task one"] [Enter] keep | [t] change | [n] skip:
+      |}];
+    input t5 "";          (* keep *)
+    [%expect {| Description for TASK-1 (optional): |}];      (* description *)
+    input t5 "";
+    [%expect {|
+      TASK-1 category: Development
+        [Enter] keep | [c] change:
+      |}];      (* category: cached keep/change *)
+    input t5 "";          (* keep *)
+    [%expect {|
+      === Summary ===
+      Post:
+        cr:feature (40m)  FEAT-1  [Support]
+        cr:newwork (40m)  TASK-1  [Development]
+      Total: 1h 20m
+
+      [Enter] post | [n] skip day:
+      |}];      (* summary *)
+    input t5 "n";
+    [%expect {| |}];
+    finish t5;
+
+    (* Day 6: only [feature] -> Tag_inferred FEAT-1.
+       Category changed during split path (Day 5) should carry through to project-level path. *)
+    let t6 = start ~watson_output:[(test_date, watson_feature_only)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
+    [%expect {|
+      Mon 03 February 2026 -> Mon 03 February 2026
+
+      cr - 40m
+      [feature  40m]
+
+      Total: 40m
+
+      cr - 40m
+        [feature  40m]
+        Looking up FEAT-1...
+      |}];
+    http_get t6 (jira_issue_response ~key:"FEAT-1" ~summary:"Feature work" ~id:1);
+    [%expect {|
+      OK
+        [-> FEAT-1 "Feature work"]
+        [Enter] keep | [t] ticket | [s] split | [c] category | [n] skip:
+      |}];
+    input t6 "";          (* keep *)
+    [%expect {| Description for FEAT-1 (optional): |}];      (* description *)
+    input t6 "";
+    [%expect {|
+      FEAT-1 category: Support
+        [Enter] keep | [c] change:
+      |}];      (* category: Support or Meeting? *)
+    input t6 "";          (* keep *)
+    [%expect {|
+      === Summary ===
+      Post:
+        cr         (40m)  FEAT-1  [Support]
+      Total: 40m
+
+      [Enter] post | [n] skip day:
+      |}];      (* summary *)
+    input t6 "n";
+    [%expect {| |}];
+    finish t6
+
 let%expect_test "cached ticket lookup failure: clears mapping, falls through to search" =
   with_temp_config @@ fun ~config_path ->
     let config = test_config_with_mappings [("coding", Config.Ticket (Ticket.Key.of_string_exn "OLD-1"))] in
