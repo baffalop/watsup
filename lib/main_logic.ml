@@ -139,6 +139,9 @@ let run_day ~config_path:_ ~config ~creds ~tempo_creds ~starred_projects ~date =
           ~project:entry.Watson.project tag with
       | Processor.Tag_accept ticket -> accept_tag acc cfg composite_key tag ticket
       | Processor.Tag_skip -> (acc, cfg)
+      | Processor.Tag_skip_always ->
+        let cfg = Config.set_mapping cfg composite_key Config.Skip in
+        (acc, cfg)
     in
     let decisions, cfg = List.fold entry.Watson.tags ~init:([], cfg)
       ~f:(fun (acc, cfg) tag ->

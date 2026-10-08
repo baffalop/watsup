@@ -902,27 +902,9 @@ Total: 1h 20m 02s|} in
       >
       |}];
     input t "1";
-    (* review: uncached non-ticket tag, search prompt *)
+    (* review: uncached non-ticket tag, skip always *)
     [%expect {| [review   10m]   [Enter] search "cr review" | [ticket/search] | [n] skip | [S] skip always: |}];
-    input t "REVIEW-55";
-    [%expect {| Looking up REVIEW-55... |}];
-    http_get t (jira_issue_response ~key:"REVIEW-55" ~summary:"Code review task" ~id:55);
-    [%expect {|
-        REVIEW-55  Code review task
-        [Enter] confirm | [text] search again | [n] back:
-      |}];
-    input t "";
-    [%expect {| Description for REVIEW-55 (optional): |}];
-    input t "code review";
-    (* REVIEW-55 category — inline after description *)
-    [%expect {|
-      REVIEW-55 category:
-        1. Development
-        2. Meeting
-        3. Support
-      >
-      |}];
-    input t "2";
+    input t "S";
     (* DEV-202: auto-detected ticket pattern, lookup *)
     [%expect {| [DEV-202  35m]   Looking up DEV-202... |}];
     http_get t (jira_issue_response ~key:"DEV-202" ~summary:"Dev task 202" ~id:202);
@@ -931,13 +913,11 @@ Total: 1h 20m 02s|} in
       [-> DEV-202 "Dev task 202"] [Enter] keep | [t] change | [n] skip:
       |}];
     input t "n";
-    (* Summary + skip *)
     [%expect {|
       === Summary ===
       Post:
         cr:DEV-101 (35m)  DEV-101  [Development]  "review of DEV-101"
-        cr:review  (10m)  REVIEW-55  [Meeting]  "code review"
-      Total: 45m
+      Total: 35m
 
       [Enter] post | [n] skip day:
       |}];

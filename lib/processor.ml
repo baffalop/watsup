@@ -15,6 +15,7 @@ type prompt_response =
 type tag_prompt_response =
   | Tag_accept of Ticket.Key.t
   | Tag_skip
+  | Tag_skip_always
 [@@deriving sexp]
 
 let process_entry ~entry ~cached ~prompt ?(tag_prompt = fun _tag -> Tag_skip) ?(describe = fun _ticket -> "") () =
@@ -55,7 +56,7 @@ let process_entry ~entry ~cached ~prompt ?(tag_prompt = fun _tag -> Tag_skip) ?(
             source = sprintf "%s:%s" entry.project tag.name;
             description;
           })
-        | Tag_skip -> None)
+        | Tag_skip | Tag_skip_always -> None)
       in
       (decisions, None)
 

@@ -45,7 +45,8 @@ let uncached_tag ~creds ~starred_projects ~date ~project tag =
   match Jira_search.prompt_loop ~creds ~search_hint ~has_tags:false
       ~starred_projects ~log_date:date with
   | Jira_search.Selected result -> Processor.Tag_accept result.key
-  | Jira_search.Skip_once | Jira_search.Skip_always -> Processor.Tag_skip
+  | Jira_search.Skip_once -> Processor.Tag_skip
+  | Jira_search.Skip_always -> Processor.Tag_skip_always
   | Jira_search.Split -> Processor.Tag_skip
 
 let cached_tag ~creds tag ~ticket =

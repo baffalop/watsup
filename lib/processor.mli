@@ -13,6 +13,7 @@ type prompt_response =
 type tag_prompt_response =
   | Tag_accept of Ticket.Key.t
   | Tag_skip
+  | Tag_skip_always
 [@@deriving sexp]
 
 (** Sum durations of all Post decisions, excluding Skips *)
