@@ -1868,3 +1868,119 @@ Total: 1h 00m 00s|} in
     input t "n";
     [%expect {||}];
     finish t
+
+(* ── Bug reproduction tests ──────────────────────────────────────────────── *)
+
+(* Bug 1: when a project has composite-key mappings from a previous split,
+   encountering that project with only one matching tag produces Tag_inferred.
+   Keeping in Tag_inferred saves a project-level mapping (entry.Watson.project)
+   which then takes precedence over the composite keys on the next multi-tag run,
+   causing Project_cached to fire instead of Auto_split. *)
+let%expect_test "bug: tag-inferred keep saves project key, overriding composite keys" =
+  with_temp_config @@ fun ~config_path ->
+    (* Start with composite keys from a previous split run *)
+    let config = test_config_with_mappings [
+      ("cr:DEV-101", Config.Ticket (Ticket.Key.of_string_exn "DEV-101"));
+      ("cr:DEV-202", Config.Ticket (Ticket.Key.of_string_exn "DEV-202"));
+    ] in
+    Config.save ~path:config_path config |> Or_error.ok_exn;
+
+    (* Run 1: only [DEV-101] present -> Tag_inferred DEV-101 -> user keeps
+       This incorrectly saves cr -> DEV-101 at the project level. *)
+    let watson_single = {|Mon 03 February 2026 -> Mon 03 February 2026
+
+cr - 40m 00s
+	[DEV-101     40m 00s]
+
+Total: 40m 00s|} in
+    let t1 = start ~watson_output:[(test_date, watson_single)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
+    [%expect {|
+      Mon 03 February 2026 -> Mon 03 February 2026
+
+      cr - 40m
+      [DEV-101  40m]
+
+      Total: 40m
+
+      cr - 40m
+        [DEV-101  40m]
+        Looking up DEV-101...
+      |}];
+    http_get t1 (jira_issue_response ~key:"DEV-101" ~summary:"Dev task 101" ~id:101);
+    [%expect {|
+      OK
+        [-> DEV-101 "Dev task 101"]
+        [Enter] keep | [t] ticket | [s] split | [c] category | [n] skip:
+      |}];
+    input t1 "";   (* keep *)
+    [%expect {| Description for DEV-101 (optional): |}];
+    input t1 "";   (* description *)
+    [%expect {|
+      DEV-101 category:
+        1. Development
+        2. Meeting
+        3. Support
+      >
+      |}];
+    input t1 "1";  (* category: Development (fresh, no prior selection) *)
+    [%expect {|
+      === Summary ===
+      Post:
+        cr         (40m)  DEV-101  [Development]
+      Total: 40m
+
+      [Enter] post | [n] skip day:
+      |}];
+    input t1 "n";  (* skip posting *)
+    [%expect {||}];
+    finish t1;
+
+    (* Verify bug: project-level 'cr' mapping now exists alongside composite keys *)
+    let saved1 = Config.load ~path:config_path |> Or_error.ok_exn in
+    printf "after single-tag run - cr: %b, cr:DEV-101: %b, cr:DEV-202: %b\n"
+      (Option.is_some (Config.get_mapping saved1 "cr"))
+      (Option.is_some (Config.get_mapping saved1 "cr:DEV-101"))
+      (Option.is_some (Config.get_mapping saved1 "cr:DEV-202"));
+    (* Bug: cr is true — project-level mapping was saved and will override composite keys *)
+    [%expect {| after single-tag run - cr: true, cr:DEV-101: true, cr:DEV-202: true |}];
+
+    (* Run 2: both tags present -> should Auto_split on composite keys,
+       but project-level 'cr -> DEV-101' causes Project_cached DEV-101 instead. *)
+    let watson_both = {|Mon 03 February 2026 -> Mon 03 February 2026
+
+cr - 1h 20m 00s
+	[DEV-101     40m 00s]
+	[DEV-202     40m 00s]
+
+Total: 1h 20m 00s|} in
+    let t2 = start ~watson_output:[(test_date, watson_both)] ~config_path (fun () ->
+      Main_logic.run ~config_path ~dates:[test_date])
+    in
+    (* Bug: output shows project-level cached prompt for DEV-101 (1h 20m total),
+       NOT "auto-splitting" with per-tag prompts. *)
+    [%expect {|
+      Mon 03 February 2026 -> Mon 03 February 2026
+
+      cr - 1h 20m
+      [DEV-101  40m]
+      [DEV-202  40m]
+
+      Total: 1h 20m
+
+      cr - 1h 20m
+        [DEV-101  40m]
+        [DEV-202  40m]
+        Looking up DEV-101...
+      |}];
+    http_get t2 (jira_issue_response ~key:"DEV-101" ~summary:"Dev task 101" ~id:101);
+    [%expect {|
+      OK
+        [-> DEV-101 "Dev task 101"]
+        [Enter] keep | [t] ticket | [s] split | [c] category | [n] skip:
+      |}];
+    input t2 "n";   (* skip *)
+    [%expect {| === Summary === |}];
+    finish t2
+
