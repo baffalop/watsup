@@ -304,6 +304,7 @@ watsup/
 ├── lib/
 │   ├── category.ml/mli      # Opaque Tempo category type
 │   ├── config.ml/mli        # Configuration persistence
+│   ├── date_arg.ml/mli      # CLI date argument parsing (relative/partial dates)
 │   ├── duration.ml/mli      # Time duration handling
 │   ├── io.ml/mli            # IO abstraction (effects-based)
 │   ├── jira_api.ml/mli      # Jira REST API + creds type

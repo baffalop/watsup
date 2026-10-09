@@ -133,7 +133,11 @@ Split tag mappings use composite keys like `cr:DEV-101` to avoid cross-contamina
 watsup                              # today (default)
 watsup -d 2026-02-05                # specific ISO date
 watsup -d -2                        # 2 days ago (relative)
+watsup -d 10-06                     # MM-DD: current year, or last year if in the future
+watsup -d 5                         # DD: current month, or last month if in the future
 watsup -f 2026-02-03 -t 2026-02-07  # range, processed day-by-day
+watsup -f -3 -t 0                   # relative range
+watsup -f 10-06                     # --to defaults to today
 watsup --star-projects DEV,LOG      # add starred projects for search scoping
 watsup --search metricinput         # test Jira search prompt in isolation
 ```

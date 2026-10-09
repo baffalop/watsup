@@ -34,9 +34,15 @@ watsup                              # sync today's Watson logs (default)
 watsup -d 2026-02-05                # specific date
 watsup -d -1                        # yesterday
 watsup -d -2                        # two days ago
+watsup -d 10-06                     # 6 Oct (most recent, i.e. last year if it'd be in the future)
+watsup -d 5                         # the 5th of this month (or last month if it'd be in the future)
 watsup -f 2026-02-03 -t 2026-02-07  # date range (processed day by day)
+watsup -f -3 -t 0                   # last 3 days plus today
+watsup -f 10-06                     # 6 Oct through today (--to defaults to today)
 watsup --star-projects DEV,LOG      # add starred projects for search scoping
 ```
+
+`-d`, `-f` and `-t` all accept the same formats: `YYYY-MM-DD`, `MM-DD`, `DD`, `0` (today) or `-N` (N days ago).
 
 On first run, watsup prompts for your Tempo token, Jira credentials, and starred project keys. These are cached in `~/.config/watsup/config.sexp`.
 

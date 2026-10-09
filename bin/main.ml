@@ -1,4 +1,5 @@
 module Config = Watsup.Config
+module Date_arg = Watsup.Date_arg
 module Io = Watsup.Io
 module Jira_api = Watsup.Jira_api
 module Jira_search = Watsup.Jira_search
@@ -11,35 +12,20 @@ let today () =
 
 let resolve_dates ~day ~from_date ~to_date =
   let open Core in
-  match day, from_date, to_date with
-  | None, None, None -> [today ()]
-  | Some d, None, None ->
-    (* -d DATE or -d -N for relative *)
-    (match Int.of_string_opt d with
-     | Some n when n < 0 ->
-       let t = Date.add_days (Date.today ~zone:Time_float.Zone.utc) n in
-       [Date.to_string t]
-     | _ ->
-       (* TODO: accept partial dates like "5" (day of current month) or "5-2" (Feb 5th) *)
-       [d])
-  | None, Some f, Some t ->
-    let start = Date.of_string f in
-    let stop = Date.of_string t in
-    let rec range acc d =
-      if Date.( > ) d stop then List.rev acc
-      else range (Date.to_string d :: acc) (Date.add_days d 1)
-    in
-    range [] start
-  | _ ->
-    eprintf "Error: --day and --from/--to are mutually exclusive. --from requires --to.\n";
+  let today = Date.today ~zone:Time_float.Zone.utc in
+  match Date_arg.resolve ~today ~day ~from_date ~to_date with
+  | Ok dates -> List.map dates ~f:Date.to_string
+  | Error e ->
+    eprintf "Error: %s\n" (Error.to_string_hum e);
     Core.exit 1
 
 let () =
   let open Climate.Arg_parser in
+  let date_formats = "YYYY-MM-DD, MM-DD, DD, 0 (today) or -N (N days ago)" in
   let arg_parser =
-    let+ day = named_opt ~doc:"Single day: ISO date or -N for relative" ["day"; "d"] string
-    and+ from_date = named_opt ~doc:"Range start (ISO date)" ["from"; "f"] string
-    and+ to_date = named_opt ~doc:"Range end (ISO date)" ["to"; "t"] string
+    let+ day = named_opt ~doc:("Single day: " ^ date_formats) ["day"; "d"] string
+    and+ from_date = named_opt ~doc:("Range start: " ^ date_formats) ["from"; "f"] string
+    and+ to_date = named_opt ~doc:"Range end (default: today), same formats as --from" ["to"; "t"] string
     and+ star_projects = named_opt ~doc:"Add comma-separated project keys to starred list" ["star-projects"] string
     and+ search_mode = named_opt ~doc:"Test search prompt in isolation" ["search"] string
     in
